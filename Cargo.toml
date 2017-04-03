@@ -1,0 +1,6 @@
+[package]
+name = "fai"
+version = "0.1.0"
+authors = ["Devyn Cairns <devyn.cairns@gmail.com>"]
+
+[dependencies]
