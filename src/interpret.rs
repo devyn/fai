@@ -54,8 +54,8 @@ pub fn interpret(inst: Instruction, mem: &mut [u8], state: State) -> State {
             State { sp: state.sp + 4, ip: val, ..state }
         },
 
-        Add => state.register_modify(reg, |x| x + state.operand(op)),
-        Sub => state.register_modify(reg, |x| x - state.operand(op)),
+        Add => state.register_modify(reg, |x| x.wrapping_add(state.operand(op))),
+        Sub => state.register_modify(reg, |x| x.wrapping_sub(state.operand(op))),
         Mul => state.register_modify(reg, |x| x * state.operand(op)),
         Div => state.register_modify(reg, |x| x / state.operand(op)),
         DivMod => {

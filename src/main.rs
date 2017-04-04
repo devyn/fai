@@ -4,16 +4,15 @@ extern crate lazy_static;
 pub mod data;
 pub mod interpret;
 pub mod bitcode;
+pub mod machine;
 
 use data::*;
-use interpret::*;
+use machine::Machine;
 
 fn main() {
     use data::Function::*;
     use data::Register::*;
     use data::Operand::*;
-
-    let mut mem = vec![0; 64];
 
     let instructions = &[
         Instruction(Set, A, Const(5)),
@@ -21,14 +20,20 @@ fn main() {
         Instruction(Set, B, Const(16)),
         Instruction(Store, A, Reg(B)),
         Instruction(Load, C, Reg(B)),
+        Instruction(Branch, A, Const(0)),
     ];
 
-    let state =
-        instructions.iter().cloned()
-            .fold(State::default(), |state, i| interpret(i, &mut mem, state));
+    let mut machine = Machine::new(0x200);
 
-    println!("{:?}", mem);
-    println!("{:#?}", state);
+    machine.state.sp = 0x80;
+    machine.state.ip = 0x100;
 
-    assert_eq!(state.c, 25);
+    machine.store_instructions(0x100, instructions);
+
+    machine.trace_until_zero();
+
+    println!("{:?}", machine.mem);
+    println!("{:#?}", machine.state);
+
+    assert_eq!(machine.state.c, 25);
 }

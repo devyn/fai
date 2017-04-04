@@ -50,6 +50,7 @@ pub enum Register {
 pub enum Operand {
     Reg(Register),
     Const(u32),
+    Relative(i32),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -94,7 +95,8 @@ impl State {
     pub fn operand(&self, operand: Operand) -> u32 {
         match operand {
             Operand::Reg(reg) => self.register(reg),
-            Operand::Const(c) => c
+            Operand::Const(c) => c,
+            Operand::Relative(rel) => (self.ip - 8).wrapping_add(rel as u32),
         }
     }
 

@@ -6,9 +6,11 @@
 //! 0 - 15: Function
 //! 16 - 17: Register
 //! 18: Operand (0 = Constant, 1 = Register)
-//! 19 - 20: Register content of operand (if bit 18 = 1)
-//! 21 - 31: Reserved for future use (must be zero)
-//! 32 - 63: Constant content of operand (if bit 18 = 0)
+//! 19 - 20: IF REGISTER(#18): Register content of operand
+//! 21: IF CONSTANT(#18): Constant should be interpreted as signed (i32), relative to this
+//!     instruction's location in memory
+//! 22 - 31: Reserved for future use (must be zero)
+//! 32 - 63: IF CONSTANT(#18): Constant content of operand
 //! ```
 //!
 //! See source code for function/register tables.
@@ -96,6 +98,7 @@ pub fn encode_instruction(inst: Instruction) -> (u32, u32) {
     match op {
         Reg(op_reg) => (fi | (ri << 16) | (1 << 18) | (encode_register(op_reg) << 19), 0),
         Const(op_const) => (fi | (ri << 16), op_const),
+        Relative(op_relative) => (fi | (ri << 16) | (1 << 21), op_relative as u32),
     }
 }
 
@@ -108,7 +111,11 @@ pub fn decode_instruction(words: (u32, u32)) -> Instruction {
 
     let op = match (words.0 >> 18) & 1 {
         0 => {
-            Const(words.1)
+            match (words.0 >> 21) & 1 {
+                0 => Const(words.1),
+                1 => Relative(words.1 as i32),
+                _ => unimplemented!()
+            }
         },
         1 => {
             let op_ri = (words.0 >> 19) & 0x3;
@@ -132,10 +139,10 @@ mod tests {
     static PROGRAM_INST: &'static [Instruction] = &[
         Instruction(Set, A, Const(1)), // 00
         Instruction(Cmp, C, Const(2)), // 08
-        Instruction(BranchL, A, Const(0x30)), // 10
+        Instruction(BranchL, A, Relative(0x20)), // 10
         Instruction(Mul, A, Reg(C)), // 18
         Instruction(Sub, C, Const(1)), // 20
-        Instruction(Branch, A, Const(0x10)), // 28
+        Instruction(Branch, A, Relative(-0x20)), // 28
         Instruction(Ret, A, Const(0)), // 30
         Instruction(Bad, A, Const(0)), // 38
     ];
@@ -143,10 +150,10 @@ mod tests {
     static PROGRAM_BITS: &'static [u8] = &[
         0x02, 0x00, 0b00000000, 0, /*;*/ 0x01, 0x00, 0x00, 0x00,
         0x05, 0x00, 0b00000010, 0, /*;*/ 0x02, 0x00, 0x00, 0x00,
-        0x07, 0x00, 0b00000000, 0, /*;*/ 0x30, 0x00, 0x00, 0x00,
+        0x07, 0x00, 0b00100000, 0, /*;*/ 0x20, 0x00, 0x00, 0x00,
         0x13, 0x00, 0b00010100, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
         0x12, 0x00, 0b00000010, 0, /*;*/ 0x01, 0x00, 0x00, 0x00,
-        0x06, 0x00, 0b00000000, 0, /*;*/ 0x10, 0x00, 0x00, 0x00,
+        0x06, 0x00, 0b00100000, 0, /*;*/ 0xe0, 0xff, 0xff, 0xff,
         0x10, 0x00, 0b00000000, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0b00000000, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
     ];
