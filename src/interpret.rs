@@ -8,6 +8,7 @@ pub fn interpret(inst: Instruction, mem: &mut [u8], state: State) -> State {
     let Instruction(f, reg, op) = inst;
 
     match f {
+        Bad => panic!("bad instruction"),
         Nop => state,
         Set => state.register_modify(reg, |_| state.operand(op)),
         Load => {
@@ -96,6 +97,18 @@ mod tests {
         let state1_actual = interprets(instructions, &mut vec![], state0);
 
         assert_eq!(state1_actual, state1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn interpret_bad() {
+        memless_test(
+            State::default(),
+            &[
+                Instruction(Bad, A, Const(0))
+            ],
+            State::default()
+        )
     }
 
     #[test]

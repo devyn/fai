@@ -1,8 +1,10 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Instruction(pub Function, pub Register, pub Operand);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Function {
+    Bad,
+
     Nop,
     Set,
     Load,
@@ -36,7 +38,7 @@ pub enum Function {
     Rsh,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Register {
     A,
     B,
@@ -44,7 +46,7 @@ pub enum Register {
     D,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
     Reg(Register),
     Const(u32),
