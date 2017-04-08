@@ -1,0 +1,28 @@
+; fibonacci (n: A) -> A
+; Clobbers: B
+fibonacci:
+    cmp a [0]
+    branchl [fibonacci.bad] ; Less than zero is invalid.
+    branche [fibonacci.ret] ; fibonacci(0) = 0
+    cmp a [1]
+    branche [fibonacci.ret] ; fibonacci(1) = 1
+
+    ; Get fibonacci(n - 1)
+    push a
+    sub a [1]
+    call [fibonacci]
+
+    ; Get fibonacci(n - 2), preserving the last result
+    pop b
+    push a
+    sub b [2]
+    set a [b]
+    call [fibonacci]
+
+    ; Return fibonacci(n - 1) + fibonacci(n - 2)
+    pop b
+    add a [b]
+fibonacci.ret:
+    ret
+fibonacci.bad:
+    bad

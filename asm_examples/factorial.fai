@@ -1,0 +1,19 @@
+; factorial (n: A) -> A
+; Preserves all other registers
+factorial:
+    push c
+    set c [a] ; C = n. Will decrement this in the loop
+    set a [1] ; A = 1
+
+factorial.loop:
+    cmp c [2]
+    branchl [factorial.ret] ; ret if C < 2
+
+    mul a [c] ; A *= C
+    sub c [1] ; C -= 1
+
+    branch [factorial.loop]
+
+factorial.ret:
+    pop c
+    ret

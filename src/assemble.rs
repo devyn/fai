@@ -1,8 +1,10 @@
 use std::str;
+use std::collections::BTreeMap;
 
 use nom::*;
 
 use data::*;
+use bitcode;
 
 type Label = String;
 
@@ -13,7 +15,20 @@ enum AsmBlock {
     Bytes(AsmEndianness, Vec<u8>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl AsmBlock {
+    fn size(&self) -> u32 {
+        match *self {
+            AsmBlock::Instruction(_)    => 2,
+            AsmBlock::Words(ref vec)    => vec.len() as u32,
+            AsmBlock::Bytes(_, ref vec) => {
+                let len = vec.len() as u32;
+                len / 4 + if len % 4 > 0 { 1 } else { 0 }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AsmEndianness {
     Big,
     Little,
@@ -30,10 +45,112 @@ enum AsmOperand {
     Label(Label)
 }
 
+pub fn assemble(code: &[u8], out: &mut Vec<u32>) -> Result<u32, String> {
+    match asm_blocks_file( &code[..] ) {
+        IResult::Done( b"", result ) =>
+            blocks_to_instructions(&result, out),
+
+        IResult::Error(e) => Err(format!("parser error: {:?}", e)),
+        other_e => Err(format!("parser unexpected condition: {:?}", other_e))
+    }
+}
+
+fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32>)
+    -> Result<u32, String> {
+
+    let mut current_ptr = 0_u32;
+
+    let label_offsets: BTreeMap<Label, u32> =
+        sections.iter().map(|&(ref label, ref blocks)| {
+            let start = current_ptr;
+            current_ptr += blocks.iter().map(|b| b.size()).sum();
+            (label.clone(), start)
+        }).collect();
+
+    current_ptr = 0;
+
+    let resolve = |current_ptr: u32, label: &str| -> Result<i32, String> {
+        let off = *label_offsets.get(label)
+            .ok_or_else(|| format!("Label not found: {}", label))?;
+
+        Ok(off as i32 - current_ptr as i32)
+    };
+
+    for &(_, ref blocks) in sections {
+        for block in blocks {
+            match *block {
+                AsmBlock::Instruction(AsmInstruction(f, r, ref op)) => {
+                    let words = bitcode::encode_instruction(
+                        Instruction(f, r.unwrap_or(Register::A), match *op {
+                            Some(AsmOperand::Reg(r))           => Operand::Reg(r),
+                            Some(AsmOperand::Const(c))         => Operand::Const(c),
+                            Some(AsmOperand::Relative(cr))     => Operand::Relative(cr),
+                            Some(AsmOperand::Label(ref label)) =>
+                                Operand::Relative(resolve(current_ptr, label)?),
+                            None => Operand::Const(0)
+                        })
+                    );
+
+                    if current_ptr % 2 != 0 {
+                        // Align to double-words.
+                        //
+                        // Have not decided whether this will be mandatory for instructions or not,
+                        // but it should make it easier for debug tools.
+                        out.push(0);
+                        current_ptr += 1;
+                    }
+
+                    out.push(words.0);
+                    out.push(words.1);
+
+                    current_ptr += 2;
+                },
+                AsmBlock::Words(ref words) => {
+                    out.extend(words.iter().cloned());
+
+                    current_ptr += words.len() as u32;
+                },
+                AsmBlock::Bytes(endianness, ref bytes) => {
+                    let mut iter = bytes.iter().cloned().fuse();
+
+                    let mut ended = false;
+
+                    while !ended {
+                        let mut word_bytes = [0u32; 4];
+
+                        for idx in 0..4 {
+                            word_bytes[idx] = iter.next().unwrap_or_else(|| {
+                                ended = true;
+                                0
+                            }) as u32;
+                        }
+
+                        if let AsmEndianness::Big = endianness {
+                            out.push((word_bytes[3] <<  0) |
+                                     (word_bytes[2] <<  8) |
+                                     (word_bytes[1] << 16) |
+                                     (word_bytes[0] << 24));
+                        } else {
+                            out.push((word_bytes[0] <<  0) |
+                                     (word_bytes[1] <<  8) |
+                                     (word_bytes[2] << 16) |
+                                     (word_bytes[3] << 24));
+                        }
+
+                        current_ptr += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(current_ptr)
+}
+
 named!(asm_blocks_file<&[u8], Vec<(Label, Vec<AsmBlock>)>>,
     do_parse!(
         blocks: asm_blocks >>
-        opt!(complete!(multispace)) >>
+        opt!(complete!(asm_multispace)) >>
         eof!() >>
 
         ( blocks )
@@ -75,7 +192,7 @@ named!(label<&[u8], Label>,
 
 named!(label_def<&[u8], Label>,
     do_parse!(
-        opt!(multispace) >>
+        opt!(asm_multispace) >>
         lb: label >>
         one_of!(":") >>
         ( lb )
@@ -84,9 +201,10 @@ named!(label_def<&[u8], Label>,
 
 named!(asm_block<&[u8], AsmBlock>,
     do_parse!(
-        opt!(complete!(multispace)) >>
+        opt!(complete!(asm_multispace)) >>
         inst: map!(asm_instruction, AsmBlock::Instruction) >>
         opt!(complete!(space)) >>
+        opt!(complete!(comment)) >>
         alt_complete!(eof!() | line_ending) >>
 
         (inst)
@@ -100,7 +218,7 @@ named!(asm_instruction<&[u8], AsmInstruction>,
         register: opt!(complete!(preceded!(space, register))) >>
 
         operand: opt!(complete!(preceded!(opt!(space),
-            delimited!(tag!("["), operand, tag!("]"))))) >>
+            delimited!(tag!("["), ws!(operand), tag!("]"))))) >>
 
         (AsmInstruction(function, register, operand))
     )
@@ -238,19 +356,33 @@ named!(c_decimal<&[u8], u32>,
     })
 );
 
-#[test]
-fn test_fibonacci() {
-    let code = br#"
+fn is_not_newline(c: u8) -> bool { c != b'\n' }
+
+named!(comment,
+    preceded!(one_of!(";"), take_while!(is_not_newline))
+);
+
+static EMPTY_BYTES: &'static [u8] = &[];
+
+named!(asm_multispace,
+    fold_many0!(alt_complete!(multispace | comment), EMPTY_BYTES, |_, _| EMPTY_BYTES)
+);
+
+#[cfg(test)]
+static FIBONACCI_CODE: &'static [u8] = br#"
+; This is a comment
 fibonacci:
     cmp a [0]
-    branchl [fibonacci.bad]
+    branchl [fibonacci.bad] ; another test comment
     branche [fibonacci.ret]
     cmp a [1]
-    branche [fibonaaci.ret]
+    branche [fibonacci.ret]
 
     push a
     sub a [1]
     call [fibonacci]
+
+    ; comments should work anywhere, basically
 
     pop b
     push a
@@ -264,13 +396,27 @@ fibonacci.ret:
     ret
 fibonacci.bad:
     bad
+
+; including here
 "#;
+
+#[test]
+fn test_fibonacci() {
+    let code = FIBONACCI_CODE;
 
     println!("{:?}", String::from_utf8_lossy(code));
 
     match asm_blocks_file( &code[..] ) {
         IResult::Done( b"", result ) => {
             println!("{:#?}", result);
+
+            let mut out = vec![];
+
+            blocks_to_instructions(&result, &mut out).unwrap();
+
+            println!("{:?}", out);
+
+            assert_eq!(out.len(), 17 * 2);
         },
         e => panic!("{:?}", e)
     }
