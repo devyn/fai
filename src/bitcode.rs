@@ -138,29 +138,29 @@ mod tests {
 
     static PROGRAM_INST: &'static [Instruction] = &[
         Instruction(Set, A, Const(1)), // 00
-        Instruction(Cmp, C, Const(2)), // 08
-        Instruction(BranchL, A, Relative(0x20)), // 10
-        Instruction(Mul, A, Reg(C)), // 18
-        Instruction(Sub, C, Const(1)), // 20
-        Instruction(Branch, A, Relative(-0x20)), // 28
-        Instruction(Ret, A, Const(0)), // 30
-        Instruction(Bad, A, Const(0)), // 38
+        Instruction(Cmp, C, Const(2)), // 02
+        Instruction(BranchL, A, Relative(0x08)), // 04
+        Instruction(Mul, A, Reg(C)), // 06
+        Instruction(Sub, C, Const(1)), // 08
+        Instruction(Branch, A, Relative(-0x08)), // 0a
+        Instruction(Ret, A, Const(0)), // 0c
+        Instruction(Bad, A, Const(0)), // 0e
     ];
 
-    static PROGRAM_BITS: &'static [u8] = &[
-        0x02, 0x00, 0b00000000, 0, /*;*/ 0x01, 0x00, 0x00, 0x00,
-        0x05, 0x00, 0b00000010, 0, /*;*/ 0x02, 0x00, 0x00, 0x00,
-        0x07, 0x00, 0b00100000, 0, /*;*/ 0x20, 0x00, 0x00, 0x00,
-        0x13, 0x00, 0b00010100, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
-        0x12, 0x00, 0b00000010, 0, /*;*/ 0x01, 0x00, 0x00, 0x00,
-        0x06, 0x00, 0b00100000, 0, /*;*/ 0xe0, 0xff, 0xff, 0xff,
-        0x10, 0x00, 0b00000000, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0b00000000, 0, /*;*/ 0x00, 0x00, 0x00, 0x00,
+    static PROGRAM_BITS: &'static [u32] = &[
+        0x0002 | (0b00000000 << 16), 0x00000001,
+        0x0005 | (0b00000010 << 16), 0x00000002,
+        0x0007 | (0b00100000 << 16), 0x00000008,
+        0x0013 | (0b00010100 << 16), 0x00000000,
+        0x0012 | (0b00000010 << 16), 0x00000001,
+        0x0006 | (0b00100000 << 16), 0xfffffff8,
+        0x0010 | (0b00000000 << 16), 0x00000000,
+        0x0000 | (0b00000000 << 16), 0x00000000,
     ];
 
     #[test]
     fn encode() {
-        let mut mem = vec![0; 0x40];
+        let mut mem = vec![0; 0x10];
 
         let instructions = PROGRAM_INST;
 
@@ -170,19 +170,19 @@ mod tests {
             let words = encode_instruction(inst);
 
             store(&mut mem, ptr, words.0);
-            store(&mut mem, ptr + 4, words.1);
+            store(&mut mem, ptr + 1, words.1);
 
-            ptr += 8;
+            ptr += 2;
         }
 
         let bits = PROGRAM_BITS;
 
         assert_eq!(mem.len(), bits.len());
 
-        for (idx, (&mem_byte, &bits_byte)) in mem.iter().zip(bits).enumerate() {
-            assert!(mem_byte == bits_byte,
-                "index {:#x} ({}.{}): actual byte {:#x} differs from expectation {:#x}",
-                idx, idx/8, idx%8, mem_byte, bits_byte);
+        for (idx, (&mem_word, &bits_word)) in mem.iter().zip(bits).enumerate() {
+            assert!(mem_word == bits_word,
+                "index {:#x} ({}.{}): actual word {:#x} differs from expectation {:#x}",
+                idx, idx/8, idx%8, mem_word, bits_word);
         }
     }
 
@@ -195,13 +195,13 @@ mod tests {
 
         let mut decoded = vec![];
 
-        while ptr < 0x40 {
+        while ptr < 0x10 {
             let w0 = load(&mem, ptr);
-            let w1 = load(&mem, ptr + 4);
+            let w1 = load(&mem, ptr + 1);
 
             decoded.push(decode_instruction((w0, w1)));
 
-            ptr += 8;
+            ptr += 2;
         }
 
         assert_eq!(decoded, instructions);
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn symmetry() {
-        let mut mem = vec![0; 0x40];
+        let mut mem = vec![0; 0x10];
 
         let instructions = PROGRAM_INST;
 
@@ -219,22 +219,22 @@ mod tests {
             let words = encode_instruction(inst);
 
             store(&mut mem, ptr, words.0);
-            store(&mut mem, ptr + 4, words.1);
+            store(&mut mem, ptr + 1, words.1);
 
-            ptr += 8;
+            ptr += 2;
         }
 
         ptr = 0;
 
         let mut decoded = vec![];
 
-        while ptr < 0x40 {
+        while ptr < 0x10 {
             let w0 = load(&mem, ptr);
-            let w1 = load(&mem, ptr + 4);
+            let w1 = load(&mem, ptr + 1);
 
             decoded.push(decode_instruction((w0, w1)));
 
-            ptr += 8;
+            ptr += 2;
         }
 
         assert_eq!(decoded, instructions);

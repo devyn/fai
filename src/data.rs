@@ -96,7 +96,7 @@ impl State {
         match operand {
             Operand::Reg(reg) => self.register(reg),
             Operand::Const(c) => c,
-            Operand::Relative(rel) => (self.ip - 8).wrapping_add(rel as u32),
+            Operand::Relative(rel) => (self.ip - 2).wrapping_add(rel as u32),
         }
     }
 
@@ -105,19 +105,12 @@ impl State {
     }
 }
 
-pub fn load(mem: &[u8], addr: u32) -> u32 {
-    let addr = addr as usize;
-    mem[addr] as u32 |
-        ((mem[addr + 1] as u32) << 8) |
-        ((mem[addr + 2] as u32) << 16) |
-        ((mem[addr + 3] as u32) << 24)
+#[inline]
+pub fn load(mem: &[u32], addr: u32) -> u32 {
+    mem[addr as usize]
 }
 
-pub fn store(mem: &mut [u8], addr: u32, val: u32) {
-    let addr = addr as usize;
-
-    mem[addr] = (val & 0xff) as u8;
-    mem[addr + 1] = ((val >> 8) & 0xff) as u8;
-    mem[addr + 2] = ((val >> 16) & 0xff) as u8;
-    mem[addr + 3] = ((val >> 24) & 0xff) as u8;
+#[inline]
+pub fn store(mem: &mut [u32], addr: u32, val: u32) {
+    mem[addr as usize] = val;
 }

@@ -4,7 +4,7 @@ use bitcode::*;
 
 pub struct Machine {
     pub state: State,
-    pub mem: Vec<u8>,
+    pub mem: Vec<u32>,
 }
 
 impl Machine {
@@ -15,34 +15,16 @@ impl Machine {
         }
     }
 
-    pub fn store_data(&mut self, base_addr: u32, data: &[u8]) {
-        for (addr, &byte) in ((base_addr as usize)..).zip(data) {
-            self.mem[addr] = byte;
-        }
-    }
-
-    pub fn load_data(&mut self, base_addr: u32, out: &mut [u8]) {
-        for (out_byte, &byte) in out.iter_mut().zip(&self.mem[(base_addr as usize)..]) {
-            *out_byte = byte;
-        }
-    }
-
     pub fn store_words(&mut self, base_addr: u32, data: &[u32]) {
-        let mut addr = base_addr;
-
-        for &word in data {
-            store(&mut self.mem, addr, word);
-            addr += 4;
-        }
+        let start = base_addr as usize;
+        let end   = start + data.len();
+        self.mem[start..end].copy_from_slice(data);
     }
 
-    pub fn load_words(&mut self, base_addr: u32, out: &mut [u32]) {
-        let mut addr = base_addr;
-
-        for out_word in out.iter_mut() {
-            *out_word = load(&mut self.mem, addr);
-            addr += 4;
-        }
+    pub fn load_words(&self, base_addr: u32, out: &mut [u32]) {
+        let start = base_addr as usize;
+        let end   = start + out.len();
+        out.copy_from_slice(&self.mem[start..end]);
     }
 
     pub fn store_instructions(&mut self, base_addr: u32, insts: &[Instruction]) {
@@ -52,9 +34,9 @@ impl Machine {
             let words = encode_instruction(inst);
 
             store(&mut self.mem, addr + 0, words.0);
-            store(&mut self.mem, addr + 4, words.1);
+            store(&mut self.mem, addr + 1, words.1);
 
-            addr += 8;
+            addr += 2;
         }
     }
 
@@ -63,11 +45,11 @@ impl Machine {
 
         for out_inst in out.iter_mut() {
             let word0 = load(&self.mem, addr + 0);
-            let word1 = load(&self.mem, addr + 4);
+            let word1 = load(&self.mem, addr + 1);
 
             *out_inst = decode_instruction((word0, word1));
 
-            addr += 8;
+            addr += 2;
         }
     }
 
@@ -78,7 +60,7 @@ impl Machine {
 
         self.load_words(ip, words);
 
-        self.state.ip += 8;
+        self.state.ip += 2;
 
         decode_instruction((words[0], words[1]))
     }
@@ -116,22 +98,22 @@ mod tests {
 
     static FACTORIAL: &'static [Instruction] = &[
         Instruction(Set, A, Const(1)), // 00
-        Instruction(Cmp, C, Const(2)), // 08
-        Instruction(BranchL, A, Const(0x0)), // 10
-        Instruction(Mul, A, Reg(C)), // 18
-        Instruction(Sub, C, Const(1)), // 20
-        Instruction(Branch, A, Relative(-0x20)), // 28
+        Instruction(Cmp, C, Const(2)), // 02
+        Instruction(BranchL, A, Const(0x0)), // 04
+        Instruction(Mul, A, Reg(C)), // 06
+        Instruction(Sub, C, Const(1)), // 08
+        Instruction(Branch, A, Relative(-0x08)), // 0A
     ];
 
     #[test]
     fn factorial() {
-        let mut machine = Machine::new(0x200);
+        let mut machine = Machine::new(0x80);
 
         machine.state.c = 10;
-        machine.state.sp = 0x80;
-        machine.state.ip = 0x100;
+        machine.state.sp = 0x20;
+        machine.state.ip = 0x40;
 
-        machine.store_instructions(0x100, FACTORIAL);
+        machine.store_instructions(0x40, FACTORIAL);
 
         machine.trace_until_zero();
 

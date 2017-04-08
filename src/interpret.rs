@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use data::*;
 
-pub fn interpret(inst: Instruction, mem: &mut [u8], state: State) -> State {
+pub fn interpret(inst: Instruction, mem: &mut [u32], state: State) -> State {
     use data::Function::*;
 
     let Instruction(f, reg, op) = inst;
@@ -36,22 +36,22 @@ pub fn interpret(inst: Instruction, mem: &mut [u8], state: State) -> State {
         GetSp => state.register_modify(reg, |_| state.sp),
         SetSp => State { sp: state.operand(op), ..state },
         Push => {
-            let new_sp = state.sp - 4;
+            let new_sp = state.sp - 1;
             store(mem, new_sp, state.operand(op));
             State { sp: new_sp, ..state }
         },
         Pop => {
             let val = load(&mem, state.sp);
-            State { sp: state.sp + 4, ..state.register_modify(reg, |_| val) }
+            State { sp: state.sp + 1, ..state.register_modify(reg, |_| val) }
         },
         Call => {
-            let new_sp = state.sp - 4;
+            let new_sp = state.sp - 1;
             store(mem, new_sp, state.ip);
             State { sp: new_sp, ip: state.operand(op), ..state }
         },
         Ret => {
             let val = load(&mem, state.sp);
-            State { sp: state.sp + 4, ip: val, ..state }
+            State { sp: state.sp + 1, ip: val, ..state }
         },
 
         Add => state.register_modify(reg, |x| x.wrapping_add(state.operand(op))),
@@ -88,7 +88,7 @@ mod tests {
     use data::Operand::*;
     use data::Register::*;
 
-    fn interprets(instructions: &[Instruction], mem: &mut [u8], state: State) -> State {
+    fn interprets(instructions: &[Instruction], mem: &mut [u32], state: State) -> State {
         instructions.iter().cloned()
             .fold(state, |state, inst| interpret(inst, mem, state))
     }
@@ -138,12 +138,12 @@ mod tests {
 
     #[test]
     fn interpret_load() {
-        let mut mem = vec![0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x30, 0x40];
+        let mut mem = vec![0x0403_0201, 0x4030_2010];
 
         let mem_orig = mem.clone();
 
         let state0 =
-            State { d: 0x0000_0004, ..State::default() };
+            State { d: 0x0000_0001, ..State::default() };
 
         let state1 = interprets(
             &[
@@ -165,13 +165,13 @@ mod tests {
 
     #[test]
     fn interpret_store() {
-        let mut mem = vec![0; 8];
+        let mut mem = vec![0; 2];
 
         let state0 =
             State {
                 a: 0xaabb_ccdd,
                 b: 0xeeff_1111,
-                d: 0x0000_0004,
+                d: 0x0000_0001,
                 ..State::default()
             };
 
@@ -186,7 +186,7 @@ mod tests {
 
         assert_eq!(state1, state0);
 
-        assert_eq!(&mem, &[0xdd, 0xcc, 0xbb, 0xaa, 0x11, 0x11, 0xff, 0xee]);
+        assert_eq!(&mem, &[0xaabb_ccdd, 0xeeff_1111]);
     }
 
     #[test]
@@ -320,9 +320,9 @@ mod tests {
 
     #[test]
     fn interpret_push() {
-        let mut mem = vec![0; 0x10];
+        let mut mem = vec![0; 0x04];
 
-        let state0 = State { a: 0xaaa, sp: 0x08, ..State::default() };
+        let state0 = State { a: 0xaaa, sp: 0x02, ..State::default() };
 
         let state1 = interprets(
             &[
@@ -335,22 +335,12 @@ mod tests {
 
         assert_eq!(state1, State { sp: 0x00, ..state0 });
 
-        assert_eq!(&mem, &[
-            0xef, 0xbe, 0xad, 0xde,
-            0xaa, 0x0a, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ]);
+        assert_eq!(&mem, &[0xdead_beef, 0xaaa, 0, 0]);
     }
 
     #[test]
     fn interpret_pop() {
-        let mut mem = vec![
-            0xef, 0xbe, 0xad, 0xde,
-            0xaa, 0x0a, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
+        let mut mem = vec![0xdeadbeef, 0xaaa, 0, 0];
 
         let mem_orig = mem.clone();
 
@@ -368,7 +358,7 @@ mod tests {
         assert_eq!(state1, State {
             a: 0xdead_beef,
             b: 0x0000_0aaa,
-            sp: 0x08,
+            sp: 0x02,
             ..state0
         });
 
@@ -377,9 +367,9 @@ mod tests {
 
     #[test]
     fn interpret_call() {
-        let mut mem = vec![0; 0x10];
+        let mut mem = vec![0; 0x04];
 
-        let state0 = State { a: 0xaaa, ip: 0xbbb, sp: 0x08, ..State::default() };
+        let state0 = State { a: 0xaaa, ip: 0xbbb, sp: 0x02, ..State::default() };
 
         let state1 = interprets(
             &[
@@ -392,22 +382,12 @@ mod tests {
 
         assert_eq!(state1, State { sp: 0x00, ip: 0xdead_beef, ..state0 });
 
-        assert_eq!(&mem, &[
-            0xaa, 0x0a, 0x00, 0x00,
-            0xbb, 0x0b, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ]);
+        assert_eq!(&mem, &[0xaaa, 0xbbb, 0x0, 0x0]);
     }
 
     #[test]
     fn interpret_ret() {
-        let mut mem = vec![
-            0xef, 0xbe, 0xad, 0xde,
-            0xaa, 0x0a, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00,
-        ];
+        let mut mem = vec![0xdeadbeef, 0xaaa, 0, 0];
 
         let mem_orig = mem.clone();
 
@@ -423,7 +403,7 @@ mod tests {
 
         assert_eq!(state1, State {
             ip: 0xdead_beef,
-            sp: 0x04,
+            sp: 0x01,
             ..state0
         });
 

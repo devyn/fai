@@ -23,12 +23,12 @@ fn main() {
         Instruction(Branch, A, Const(0)),
     ];
 
-    let mut machine = Machine::new(0x200);
+    let mut machine = Machine::new(0x80);
 
-    machine.state.sp = 0x80;
-    machine.state.ip = 0x100;
+    machine.state.sp = 0x20;
+    machine.state.ip = 0x40;
 
-    machine.store_instructions(0x100, instructions);
+    machine.store_instructions(0x40, instructions);
 
     machine.trace_until_zero();
 
