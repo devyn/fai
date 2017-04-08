@@ -5,3 +5,7 @@ authors = ["Devyn Cairns <devyn.cairns@gmail.com>"]
 
 [dependencies]
 lazy_static = "0.2"
+
+[dependencies.nom]
+version = "2.2"
+features = ["verbose-errors"]

@@ -2,7 +2,7 @@
 //!
 //! Each instruction is two 32-bit words
 //!
-//! ```
+//! ```text
 //! 0 - 15: Function
 //! 16 - 17: Register
 //! 18: Operand (0 = Constant, 1 = Register)
