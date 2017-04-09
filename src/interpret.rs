@@ -77,6 +77,15 @@ pub fn interpret(inst: Instruction, mem: &mut [u32], state: State) -> State {
         Xor => state.register_modify(reg, |x| x ^ state.operand(op)),
         Lsh => state.register_modify(reg, |x| x << state.operand(op)),
         Rsh => state.register_modify(reg, |x| x >> state.operand(op)),
+
+        Halt     => State { halt: true, ..state },
+        IntSw    => unimplemented!(),
+        IntHw    => unimplemented!(),
+        IntPause => unimplemented!(),
+        IntCont  => unimplemented!(),
+        IntHGet  => unimplemented!(),
+        IntHSet  => unimplemented!(),
+        IntExit  => unimplemented!(),
     }
 }
 
@@ -570,6 +579,20 @@ mod tests {
             &[
                 Instruction(Rsh, A, Reg(B)),
                 Instruction(Rsh, A, Const(16)),
+            ],
+            state1
+        );
+    }
+
+    #[test]
+    fn interpret_halt() {
+        let state0 = State { halt: false, ..State::default() };
+        let state1 = State { halt: true, ..state0 };
+
+        memless_test(
+            state0,
+            &[
+                Instruction(Halt, A, Const(0))
             ],
             state1
         );

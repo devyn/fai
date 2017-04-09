@@ -57,6 +57,15 @@ lazy_static! {
         (0x0019, Xor),
         (0x001A, Lsh),
         (0x001B, Rsh),
+
+        (0x001C, Halt),
+        (0x001D, IntSw),
+        (0x001E, IntHw),
+        (0x001F, IntPause),
+        (0x0020, IntCont),
+        (0x0021, IntHGet),
+        (0x0022, IntHSet),
+        (0x0023, IntExit),
     ].iter().cloned().collect();
 
     pub static ref REGISTERS: BTreeMap<u32, Register> = [
@@ -144,7 +153,7 @@ mod tests {
         Instruction(Sub, C, Const(1)), // 08
         Instruction(Branch, A, Relative(-0x08)), // 0a
         Instruction(Ret, A, Const(0)), // 0c
-        Instruction(Bad, A, Const(0)), // 0e
+        Instruction(Halt, A, Const(0)), // 0e
     ];
 
     static PROGRAM_BITS: &'static [u32] = &[
@@ -155,7 +164,7 @@ mod tests {
         0x0012 | (0b00000010 << 16), 0x00000001,
         0x0006 | (0b00100000 << 16), 0xfffffff8,
         0x0010 | (0b00000000 << 16), 0x00000000,
-        0x0000 | (0b00000000 << 16), 0x00000000,
+        0x001C | (0b00000000 << 16), 0x00000000,
     ];
 
     #[test]

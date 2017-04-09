@@ -36,6 +36,15 @@ pub enum Function {
     Xor,
     Lsh,
     Rsh,
+
+    Halt,
+    IntSw,
+    IntHw,
+    IntPause,
+    IntCont,
+    IntHGet,
+    IntHSet,
+    IntExit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -61,6 +70,7 @@ pub struct State {
     pub b: u32,
     pub c: u32,
     pub d: u32,
+    pub halt: bool,
     pub flags: Flags,
 }
 

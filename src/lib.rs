@@ -4,6 +4,8 @@ extern crate lazy_static;
 #[macro_use]
 extern crate nom;
 
+extern crate byteorder;
+
 pub mod data;
 pub mod interpret;
 pub mod bitcode;

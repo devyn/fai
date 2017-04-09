@@ -2,6 +2,7 @@ use std::str;
 use std::collections::BTreeMap;
 
 use nom::*;
+use byteorder::*;
 
 use data::*;
 use bitcode;
@@ -49,6 +50,11 @@ pub fn assemble(code: &[u8], out: &mut Vec<u32>) -> Result<u32, String> {
     match asm_blocks_file( &code[..] ) {
         IResult::Done( b"", result ) =>
             blocks_to_instructions(&result, out),
+
+        IResult::Error(verbose_errors::Err::Position(ekind, pos)) => {
+            let s = String::from_utf8_lossy(pos);
+            Err(format!("parser error near {:?}, unconsumed input: {}", ekind, s))
+        },
 
         IResult::Error(e) => Err(format!("parser error: {:?}", e)),
         other_e => Err(format!("parser unexpected condition: {:?}", other_e))
@@ -149,8 +155,8 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
 
 named!(asm_blocks_file<&[u8], Vec<(Label, Vec<AsmBlock>)>>,
     do_parse!(
-        blocks: asm_blocks >>
         opt!(complete!(asm_multispace)) >>
+        blocks: asm_blocks >>
         eof!() >>
 
         ( blocks )
@@ -163,8 +169,9 @@ named!(asm_blocks<&[u8], Vec<(Label, Vec<AsmBlock>)>>,
 
 named!(asm_block_pair<&[u8], (Label, Vec<AsmBlock>)>,
     do_parse!(
+        not!(peek!(preceded!(asm_multispace, eof!()))) >>
         label_opt: opt!(complete!(label_def)) >>
-        blocks: many1!(complete!(asm_block)) >>
+        blocks: many0!(asm_block) >>
 
         ( label_opt.unwrap_or_else(|| String::new()), blocks )
     )
@@ -192,23 +199,118 @@ named!(label<&[u8], Label>,
 
 named!(label_def<&[u8], Label>,
     do_parse!(
-        opt!(asm_multispace) >>
         lb: label >>
         one_of!(":") >>
+        opt!(complete!(asm_multispace)) >>
         ( lb )
     )
 );
 
 named!(asm_block<&[u8], AsmBlock>,
     do_parse!(
-        opt!(complete!(asm_multispace)) >>
-        inst: map!(asm_instruction, AsmBlock::Instruction) >>
+        block: alt_complete!(
+            asm_block_directive |
+            map!(asm_instruction, AsmBlock::Instruction) 
+        ) >>
         opt!(complete!(space)) >>
         opt!(complete!(comment)) >>
         alt_complete!(eof!() | line_ending) >>
+        opt!(complete!(asm_multispace)) >>
 
-        (inst)
+        (block)
     )
+);
+
+fn is_alphanumeric_underscore(c: u8) -> bool {
+    (c >= b'0' && c <= b'9') ||
+    (c >= b'A' && c <= b'Z') ||
+    (c >= b'a' && c <= b'z') ||
+    (c == b'_')
+}
+
+named!(alphanumeric_underscore,
+    take_while1!(is_alphanumeric_underscore)
+);
+
+named!(asm_block_directive<&[u8], AsmBlock>,
+    preceded!(tag!("."),
+        switch!(terminated!(alphanumeric_underscore, space),
+            b"len_words" => call!(dir_len_words) |
+            b"words"     => call!(dir_words) |
+            b"len_bytes" => call!(dir_len_bytes) |
+            b"bytes"     => call!(dir_bytes)
+        )
+    )
+);
+
+named!(dir_words<&[u8], AsmBlock>,
+    map!(delimited!(one_of!("{"),
+                    separated_list!(one_of!(","), ws!(constant)),
+                    one_of!("}")),
+         AsmBlock::Words)
+);
+
+named!(dir_len_words<&[u8], AsmBlock>,
+    map!(dir_words, |block| {
+        let mut words = match block {
+            AsmBlock::Words(words) => words,
+            _ => unreachable!()
+        };
+
+        let len = words.len() as u32;
+
+        words.insert(0, len);
+        AsmBlock::Words(words)
+    })
+);
+
+named!(dir_bytes<&[u8], AsmBlock>,
+    do_parse!(
+        endianness: alt_complete!(
+            tag_no_case!("be") => { |_| AsmEndianness::Big    } |
+            tag_no_case!("le") => { |_| AsmEndianness::Little }
+        ) >>
+        s: string >>
+        
+        ( AsmBlock::Bytes(endianness, s) )
+    )
+);
+
+named!(dir_len_bytes<&[u8], AsmBlock>,
+    map!(dir_bytes, |block| {
+        let (endianness, bytes) = match block {
+            AsmBlock::Bytes(endianness, bytes) => (endianness, bytes),
+            _ => unreachable!()
+        };
+
+        let len = bytes.len() as u32;
+
+        let mut buf = vec![0; 4];
+
+        match endianness {
+            AsmEndianness::Big    => BigEndian::write_u32(   &mut buf[..], len),
+            AsmEndianness::Little => LittleEndian::write_u32(&mut buf[..], len),
+        }
+
+        buf.extend(bytes);
+        AsmBlock::Bytes(endianness, buf)
+    })
+);
+
+fn is_string_safe(c: u8) -> bool {
+    c != b'\"' && c != b'\\'
+}
+
+named!(string_safe_bytes, take_while1!(is_string_safe));
+
+named!(string<&[u8], Vec<u8>>,
+    delimited!(one_of!("\""), escaped_transform!(string_safe_bytes, b'\\',
+        alt_complete!(
+            tag!("\\") => { |_| &b"\\"[..] } |
+            tag!("\"") => { |_| &b"\""[..] } |
+            tag!("n")  => { |_| &b"\n"[..] }
+        )
+    ), one_of!("\""))
 );
 
 named!(asm_instruction<&[u8], AsmInstruction>,
@@ -268,21 +370,34 @@ named!(function<&[u8], Function>,
             "lsh"      => Lsh,
             "rsh"      => Rsh,
 
+            "halt"     => Halt,
+            "intsw"    => IntSw,
+            "inthw"    => IntHw,
+            "intpause" => IntPause,
+            "intcont"  => IntCont,
+            "inthget"  => IntHGet,
+            "inthset"  => IntHSet,
+            "intexit"  => IntExit,
+
             _ => return None
         })
     })
 );
 
 named!(register<&[u8], Register>,
-    map_opt!(anychar, |c: char| {
-        match c {
-            'a' | 'A' => Some(Register::A),
-            'b' | 'B' => Some(Register::B),
-            'c' | 'C' => Some(Register::C),
-            'd' | 'D' => Some(Register::D),
-            _ => None
-        }
-    })
+    do_parse!(
+        ch: map_opt!(anychar, |c: char| {
+            match c {
+                'a' | 'A' => Some(Register::A),
+                'b' | 'B' => Some(Register::B),
+                'c' | 'C' => Some(Register::C),
+                'd' | 'D' => Some(Register::D),
+                _ => None
+            }
+        }) >>
+        not!(peek!(alphanumeric)) >>
+        ( ch )
+    )
 );
 
 named!(operand<&[u8], AsmOperand>,
@@ -332,7 +447,7 @@ fn is_binary(c: u8) -> bool {
 }
 
 named!(binary_digit,
-    take_while!(is_binary)
+    take_while1!(is_binary)
 );
 
 named!(c_binary<&[u8], u32>,

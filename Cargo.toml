@@ -3,8 +3,11 @@ name = "fai"
 version = "0.1.0"
 authors = ["Devyn Cairns <devyn.cairns@gmail.com>"]
 
+[lib]
+
 [dependencies]
 lazy_static = "0.2"
+byteorder = "1.0"
 
 [dependencies.nom]
 version = "2.2"

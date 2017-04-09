@@ -1,0 +1,197 @@
+; vim:sw=1:ts=1:et:tw=40
+
+_start:
+ ; First thing to do is to figure out
+ ; where our output is going to go
+ ;
+ ; We'll try to find a monitor first
+ set a [0x384c0001] ; monitor dev. id
+ call [FindDevice]
+ cmp a [-1] ; error result, naturally
+ branchne [MonitorFound]
+
+ ; No monitor found. Guess we'll have to
+ ; hope for a debug console.
+ set a [0xdeadbeef] ; debug console id
+ call [FindDevice]
+ cmp a [-1]
+ branchne [ConsoleFound]
+
+ ; Neither found. All we can do is panic
+ ; here. We'll use a bad instruction.
+ bad
+ halt ; just in case
+
+MonitorFound:
+ ; FindDevice puts the address in B
+ store b [g_MonitorAddr]
+
+ ; The monitor will start in monochrome
+ ; 40x20 character mode, with 4
+ ; characters per word of video memory
+ ;
+ ; 40x20 / 4 = 200 words
+ ;
+ ; Let's clear them all.
+ ; Remember, b = g_MonitorAddr
+ set a [200]
+ set c [0]
+
+MonitorFound.clearLoop:
+ cmp a [0]
+ branche [MonitorFound.clearLoopEnd]
+ store c [b] ; c = 0
+ sub a [1]
+ add b [1]
+ branch [MonitorFound.clearLoop]
+
+MonitorFound.clearLoopEnd:
+ ; Since we have a monitor, we need a
+ ; keyboard.
+ set a [0x384c000e] ; keyboard dev. id
+ call [FindDevice]
+ cmp a [-1]
+ branchne [KeyboardFound]
+
+ ; If we don't have a keyboard, write an
+ ; error message telling the user they
+ ; need a keyboard, then halt
+ set a [m_KeyboardNotFound]
+ call [PrintString]
+ halt
+
+KeyboardFound:
+ store a [g_KeyboardInt]
+ store b [g_KeyboardAddr]
+
+ branch [Main]
+
+ConsoleFound:
+ store a [g_ConsoleInt]
+ store b [g_ConsoleAddr]
+
+ branch [Main]
+
+Main:
+ ; Say hi!
+ set a [m_Ready]
+ call [PrintString]
+ halt
+
+PrintString:
+ push d
+ push c
+ push b
+
+ ; length of string in bytes
+ load b [a]
+ add a [1]
+
+ PrintString.wordLoop:
+ ; byte-word magic
+ ; a = word pointer
+ ; d = byte counter
+ set d [0]
+ push a
+ load a [a]
+
+ PrintString.byteLoop:
+ ; See if we're out of bytes
+ cmp b [0]
+ branche [PrintString.ret]
+
+ call [PrintChar]
+
+ ; next byte
+ rsh a [8]
+ sub b [1]
+
+ add d [1]
+ cmp d [4] ; next word?
+ branche [PrintString.wordLoop]
+ branch  [PrintString.byteLoop]
+
+ PrintString.ret:
+ pop a
+ pop b
+ pop c
+ pop d
+ ret
+
+PrintChar:
+ push d
+ push c
+ push b
+
+ ; Do we need to use the console or the
+ ; monitor?
+ load b [g_MonitorAddr]
+ cmp b [0]
+ branche [PrintChar.Console]
+
+ PrintChar.Monitor:
+ ; Set c to current char index
+ load c [g_MonitorY]
+ load d [g_MonitorX]
+ mul c [40] ; 40 chars per row
+ add c [d]
+
+ divmod c [4] ; c = word index,
+              ; d = byte remainder
+ mul d [8]    ; d = left shift amount
+
+ ; Add word index to monitor base
+ add b [c]
+ ; Load that word for modification
+ load c [b]
+
+ ; Mask it
+ push a
+ set a [0xff]
+ lsh a [d]
+ not a
+ and c [a]
+
+ ; Replace
+ pop a
+ and a [0xff]
+ lsh a [d]
+ or c [a]
+
+ branch [PrintChar.ret]
+
+ PrintChar.Console:
+ load d [g_ConsoleAddr]
+ store a [d]
+ load d [g_ConsoleInt]
+ inthw [d]
+
+ PrintChar.ret:
+ pop b
+ pop c
+ pop d
+ ret
+
+FindDevice:
+ ; TODO
+ set a [-1]
+ ret
+
+; global vars
+g_MonitorAddr:  .words {0}
+g_MonitorX:     .words {0}
+g_MonitorY:     .words {0}
+g_KeyboardAddr: .words {0}
+g_KeyboardInt:  .words {0}
+g_ConsoleAddr:  .words {0}
+g_ConsoleInt:   .words {0}
+
+; messages
+m_Ready:
+ .len_bytes LE"Ready\n"
+m_KeyboardNotFound:
+ .len_bytes LE"
+Keyboard not found.
+Please install a keyboard and reset, or
+use a debug console.
+"

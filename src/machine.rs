@@ -69,15 +69,15 @@ impl Machine {
         self.state = interpret(inst, &mut self.mem, self.state);
     }
 
-    pub fn run_until_zero(&mut self) {
-        while self.state.ip != 0 {
+    pub fn run_until_halt(&mut self) {
+        while !self.state.halt {
             let inst = self.decode_next();
             self.interpret(inst);
         }
     }
 
-    pub fn trace_until_zero(&mut self) {
-        while self.state.ip != 0 {
+    pub fn trace_until_halt(&mut self) {
+        while !self.state.halt {
             println!("{:#?}", self.state);
             let inst = self.decode_next();
 
@@ -99,10 +99,11 @@ mod tests {
     static FACTORIAL: &'static [Instruction] = &[
         Instruction(Set, A, Const(1)), // 00
         Instruction(Cmp, C, Const(2)), // 02
-        Instruction(BranchL, A, Const(0x0)), // 04
+        Instruction(BranchL, A, Relative(0x08)), // 04
         Instruction(Mul, A, Reg(C)), // 06
         Instruction(Sub, C, Const(1)), // 08
         Instruction(Branch, A, Relative(-0x08)), // 0A
+        Instruction(Halt, A, Const(0)), // 0C
     ];
 
     #[test]
@@ -115,7 +116,7 @@ mod tests {
 
         machine.store_instructions(0x40, FACTORIAL);
 
-        machine.trace_until_zero();
+        machine.trace_until_halt();
 
         assert_eq!(machine.state.a, 3628800);
     }
