@@ -66,6 +66,8 @@ lazy_static! {
         (0x0021, IntHGet),
         (0x0022, IntHSet),
         (0x0023, IntExit),
+
+        (0x0024, Trace),
     ].iter().cloned().collect();
 
     pub static ref REGISTERS: BTreeMap<u32, Register> = [
@@ -178,8 +180,8 @@ mod tests {
         for &inst in instructions {
             let words = encode_instruction(inst);
 
-            store(&mut mem, ptr, words.0);
-            store(&mut mem, ptr + 1, words.1);
+            mem[ptr + 0] = words.0;
+            mem[ptr + 1] = words.1;
 
             ptr += 2;
         }
@@ -205,8 +207,8 @@ mod tests {
         let mut decoded = vec![];
 
         while ptr < 0x10 {
-            let w0 = load(&mem, ptr);
-            let w1 = load(&mem, ptr + 1);
+            let w0 = mem[ptr + 0];
+            let w1 = mem[ptr + 1];
 
             decoded.push(decode_instruction((w0, w1)));
 
@@ -227,8 +229,8 @@ mod tests {
         for &inst in instructions {
             let words = encode_instruction(inst);
 
-            store(&mut mem, ptr, words.0);
-            store(&mut mem, ptr + 1, words.1);
+            mem[ptr + 0] = words.0;
+            mem[ptr + 1] = words.1;
 
             ptr += 2;
         }
@@ -238,8 +240,8 @@ mod tests {
         let mut decoded = vec![];
 
         while ptr < 0x10 {
-            let w0 = load(&mem, ptr);
-            let w1 = load(&mem, ptr + 1);
+            let w0 = mem[ptr + 0];
+            let w1 = mem[ptr + 1];
 
             decoded.push(decode_instruction((w0, w1)));
 

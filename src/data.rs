@@ -45,6 +45,8 @@ pub enum Function {
     IntHGet,
     IntHSet,
     IntExit,
+
+    Trace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -70,15 +72,10 @@ pub struct State {
     pub b: u32,
     pub c: u32,
     pub d: u32,
+    pub inth: u32,
+    pub int_outgoing: Option<u32>,
     pub halt: bool,
     pub flags: Flags,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Flags {
-    pub l: bool,
-    pub g: bool,
-    pub e: bool,
 }
 
 impl State {
@@ -115,12 +112,42 @@ impl State {
     }
 }
 
-#[inline]
-pub fn load(mem: &[u32], addr: u32) -> u32 {
-    mem[addr as usize]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Flags {
+    pub cmp_l: bool,
+    pub cmp_g: bool,
+    pub cmp_e: bool,
+    pub int_pause: bool,
 }
 
-#[inline]
-pub fn store(mem: &mut [u32], addr: u32, val: u32) {
-    mem[addr as usize] = val;
+impl From<u32> for Flags {
+    fn from(word: u32) -> Flags {
+        Flags {
+            cmp_l:     word & (1 << 0) != 0,
+            cmp_g:     word & (1 << 1) != 0,
+            cmp_e:     word & (1 << 2) != 0,
+            int_pause: word & (1 << 9) != 0,
+        }
+    }
+}
+
+impl From<Flags> for u32 {
+    fn from(flags: Flags) -> u32 {
+        let mut word = 0;
+
+        if flags.cmp_l {
+            word |= 1 << 0;
+        }
+        if flags.cmp_g {
+            word |= 1 << 1;
+        }
+        if flags.cmp_e {
+            word |= 1 << 2;
+        }
+        if flags.int_pause {
+            word |= 1 << 9;
+        }
+
+        word
+    }
 }

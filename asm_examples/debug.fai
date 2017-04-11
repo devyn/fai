@@ -76,12 +76,34 @@ Main:
  ; Say hi!
  set a [m_Ready]
  call [PrintString]
- halt
+
+ inthset [IntHandler]
+
+ Main.Loop:
+ call [Prompt]
+ branch [Main.Loop]
+
+Prompt:
+ set a [m_Prompt]
+ call [PrintString]
+
+ call [ReadChar]
+ call [PrintChar]
+
+ cmp a [0x71] ; q
+ branche [Quit]
+
+ ret
+
+Quit:
+ bad
+ branch [Quit]
 
 PrintString:
  push d
  push c
  push b
+ push a
 
  ; length of string in bytes
  load b [a]
@@ -108,10 +130,15 @@ PrintString:
 
  add d [1]
  cmp d [4] ; next word?
- branche [PrintString.wordLoop]
- branch  [PrintString.byteLoop]
+ branchl [PrintString.byteLoop]
+
+ PrintString.wordLoopNext:
+ pop a
+ add a [1]
+ branch [PrintString.wordLoop]
 
  PrintString.ret:
+ pop a
  pop a
  pop b
  pop c
@@ -122,6 +149,7 @@ PrintChar:
  push d
  push c
  push b
+ push a
 
  ; Do we need to use the console or the
  ; monitor?
@@ -162,33 +190,138 @@ PrintChar:
 
  PrintChar.Console:
  load d [g_ConsoleAddr]
- store a [d]
+ set b [0x1] ; int_message = Send
+ store b [d]
+
+ add d [0x2]
+ store a [d] ; outgoing = (character)
+
  load d [g_ConsoleInt]
  inthw [d]
 
  PrintChar.ret:
+ pop a
  pop b
  pop c
  pop d
  ret
 
+ReadChar:
+ intpause
+ push c
+ push b
+
+ load b [g_ConsoleAddr]
+ load c [g_ConsoleInt]
+
+ set a [0]
+ store a [g_ConsoleIncoming]
+
+ store a [b] ; int_select = Ack
+ inthw [c]
+ intcont
+
+ ReadChar.wait:
+ load a [g_ConsoleIncoming]
+ cmp a [0]
+ branchne [ReadChar.received]
+ halt
+ trace
+ branch [ReadChar.wait]
+
+ ReadChar.received:
+ intpause
+ and a [0xff] ; truncate to char
+
+ ; Make sure we clear incoming
+ set b [0]
+ store b [g_ConsoleIncoming]
+
+ pop b
+ pop c
+ intcont
+ ret
+
+IntHandler:
+ push b
+
+ load b [g_ConsoleInt]
+ cmp a [b]
+ branche [IntHandler.console]
+
+ branch [IntHandler.ret]
+
+ IntHandler.console:
+ load b [g_ConsoleAddr]
+ add b [1]
+ load b [b] ; incoming
+ or b [0x80000000] ; set highest bit
+ store b [g_ConsoleIncoming]
+ branch [IntHandler.ret]
+
+ IntHandler.ret:
+ pop b
+ intexit
+
+; Args:
+;  A = model number of device
+; On success:
+;  A = interrupt of device
+;  B = start of memory of device
+;  C = size of memory of device
+; On failure:
+;  A = -1
+;  B = 0
+;  C = 0
 FindDevice:
- ; TODO
+ ; Device config ROM is at 0x1000
+ ; Structure: .words
+ ;  {model, interrupt,
+ ;   memmap_base, memmap_size}
+ set b [0x1000]
+
+ FindDevice.loop:
+ load c [b]
+ cmp c [0]
+ branche [FindDevice.notFound]
+ cmp c [a]
+ branche [FindDevice.found]
+ add b [0x4]
+ branch [FindDevice.loop]
+
+ FindDevice.found:
+ set c [b]
+ add c [0x1]
+ load a [c]
+ add c [0x1]
+ load b [c]
+ add c [0x1]
+ load c [c]
+ branch [FindDevice.ret]
+
+ FindDevice.notFound:
  set a [-1]
+ set b [0]
+ set c [0]
+
+ FindDevice.ret:
  ret
 
 ; global vars
-g_MonitorAddr:  .words {0}
-g_MonitorX:     .words {0}
-g_MonitorY:     .words {0}
-g_KeyboardAddr: .words {0}
-g_KeyboardInt:  .words {0}
-g_ConsoleAddr:  .words {0}
-g_ConsoleInt:   .words {0}
+g_MonitorAddr:     .words {0}
+g_MonitorX:        .words {0}
+g_MonitorY:        .words {0}
+g_KeyboardAddr:    .words {0}
+g_KeyboardInt:     .words {0}
+g_ConsoleAddr:     .words {0}
+g_ConsoleInt:      .words {0}
+g_ConsoleIncoming: .words {0}
 
 ; messages
 m_Ready:
- .len_bytes LE"Ready\n"
+ .len_bytes LE"Ready"
+m_Prompt:
+ .len_bytes LE"\r\n? "
 m_KeyboardNotFound:
  .len_bytes LE"
 Keyboard not found.

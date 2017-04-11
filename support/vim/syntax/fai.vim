@@ -15,6 +15,7 @@ syn keyword faiFunction
       \ branche branchne getsp setsp push pop call ret add
       \ sub mul div divmod not and or xor lsh rsh halt
       \ intsw inthw intpause intcont inthget inthset intexit
+      \ trace
 
 syn keyword faiDirective
       \ .words .len_words .bytes .len_bytes
@@ -33,7 +34,7 @@ syn match faiLabelDef '[_A-Za-z][_.A-Za-z0-9]*:'
 
 syn region faiWords start="{" end="}" fold transparent contains=faiNumber
 
-syn match faiEscape contained '\\[\\"n]'
+syn match faiEscape contained '\\[\\"rn]'
 
 syn region faiString start='be"' end='"' contains=faiEscape
 syn region faiString start='le"' end='"' contains=faiEscape

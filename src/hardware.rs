@@ -1,9 +1,10 @@
 use event_pool::Dispatch;
+use device::DeviceConfig;
 
 pub trait Hardware {
     fn set_id(&mut self, id: Id);
     fn receive(&mut self, message: HardwareMessage);
-    fn tick<'a>(&mut self, ts: u64, dispatch: Dispatch<'a>);
+    fn tick(&mut self, ts: u64, dispatch: Dispatch);
 }
 
 pub type Id = u32;
@@ -24,7 +25,7 @@ pub enum HardwareMessage {
     IntDeviceToMachine(Route),
     MemGetRequest(Route, LocalAddr),
     MemGetResponse(Route, LocalAddr, u32, Cacheable),
-    MemSetRequest(Route, LocalAddr),
+    MemSetRequest(Route, LocalAddr, u32),
     MemSetResponse(Route, LocalAddr, u32, Cacheable),
 }
 
@@ -57,15 +58,6 @@ impl HardwareMessage {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeviceConfig {
-    pub id: Id,
-    pub model: u32,
-    pub interrupt: u32,
-    pub memmap_base: u32,
-    pub memmap_size: u32, // 0 = no memmap
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

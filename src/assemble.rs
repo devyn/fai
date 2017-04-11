@@ -308,7 +308,8 @@ named!(string<&[u8], Vec<u8>>,
         alt_complete!(
             tag!("\\") => { |_| &b"\\"[..] } |
             tag!("\"") => { |_| &b"\""[..] } |
-            tag!("n")  => { |_| &b"\n"[..] }
+            tag!("n")  => { |_| &b"\n"[..] } |
+            tag!("r")  => { |_| &b"\r"[..] }
         )
     ), one_of!("\""))
 );
@@ -378,6 +379,8 @@ named!(function<&[u8], Function>,
             "inthget"  => IntHGet,
             "inthset"  => IntHSet,
             "intexit"  => IntExit,
+
+            "trace"    => Trace,
 
             _ => return None
         })

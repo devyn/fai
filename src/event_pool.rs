@@ -1,6 +1,9 @@
+use std::thread;
+use std::time::Duration;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use hardware::{Hardware, HardwareMessage, Route, DeviceConfig, Id};
+use hardware::{Hardware, HardwareMessage, Route, Id};
+use device::DeviceConfig;
 
 pub struct EventPool {
     ts: u64,
@@ -33,20 +36,31 @@ impl EventPool {
         for (owner, mbox) in &mut self.mailboxes {
             let hw = self.hardware.get_mut(owner).unwrap();
             for message in mbox.drain(..) {
+                debug!("<- {:?}", message);
                 hw.receive(message);
             }
         }
 
         for (id, hw) in &mut self.hardware {
+            debug!("tick {}, {}", id, self.ts);
             hw.tick(self.ts, Dispatch {
                 ensure_from: Some(*id),
                 routes: &mut self.routes,
                 mailboxes: &mut self.mailboxes
             })
         }
+
+        self.ts += 1;
     }
 
-    pub fn add_hardware<H>(&mut self, mut hw: H) where H: Hardware, H: 'static {
+    pub fn tick_real_clock(&mut self, delay: Duration) {
+        loop {
+            self.tick();
+            thread::sleep(delay);
+        }
+    }
+
+    pub fn add_hardware<H>(&mut self, mut hw: H) -> u32 where H: Hardware, H: 'static {
         let id = self.id_counter;
         self.id_counter += 1;
 
@@ -54,6 +68,8 @@ impl EventPool {
 
         self.hardware.insert(id, Box::new(hw));
         self.mailboxes.insert(id, VecDeque::new());
+
+        id
     }
 
     pub fn connect(&mut self, a: Id, b: Id) {

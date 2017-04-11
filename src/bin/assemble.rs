@@ -1,5 +1,7 @@
 extern crate fai;
 
+extern crate env_logger;
+
 extern crate byteorder;
 extern crate getopts;
 
@@ -30,6 +32,8 @@ fn print_usage(program: &str, opts: Options) {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let program = args[0].clone();
+
+    env_logger::init().unwrap();
 
     let mut opts = Options::new();
 
@@ -99,8 +103,6 @@ fn output_pretty<W: Write>(bitcode: &[u32], mut out_stream: W) -> io::Result<()>
                 (bitcode[current_ptr], bitcode[current_ptr + 1]));
 
             write!(out_stream, "    {:?}", inst)?;
-        } else {
-            write!(out_stream, " {:8}", "")?;
         }
 
         writeln!(out_stream)?;

@@ -1,56 +1,66 @@
 use std::cmp::Ordering;
 
 use data::*;
+use mem_backend::MemBackend;
 
-pub fn interpret(inst: Instruction, mem: &mut [u32], state: State) -> State {
+pub fn interpret<M>(inst: Instruction, mem: &mut M, state: State) -> Result<State, M::Error>
+    where M: MemBackend + ?Sized {
+
     use data::Function::*;
 
     let Instruction(f, reg, op) = inst;
 
-    match f {
+    Ok(match f {
         Bad => panic!("bad instruction"),
         Nop => state,
         Set => state.register_modify(reg, |_| state.operand(op)),
         Load => {
-            let val = load(&mem, state.operand(op));
+            let val = mem.load(state.operand(op))?;
             state.register_modify(reg, |_| val)
         },
         Store => {
-            store(mem, state.operand(op), state.register(reg));
+            mem.store(state.operand(op), state.register(reg))?;
             state
         },
         Cmp => State {
-            flags: match state.register(reg).cmp(&state.operand(op)) {
-                Ordering::Less    => Flags { l: true, g: false, e: false },
-                Ordering::Greater => Flags { l: false, g: true, e: false },
-                Ordering::Equal   => Flags { l: false, g: false, e: true }
+            flags: {
+                let mut new_flags = Flags {
+                    cmp_l: false, cmp_g: false, cmp_e: false, ..state.flags };
+
+                match state.register(reg).cmp(&state.operand(op)) {
+                    Ordering::Less    => { new_flags.cmp_l = true; },
+                    Ordering::Greater => { new_flags.cmp_g = true; },
+                    Ordering::Equal   => { new_flags.cmp_e = true; }
+                }
+
+                new_flags
             },
             ..state
         },
         Branch => state.branch(op),
-        BranchL => if state.flags.l { state.branch(op) } else { state },
-        BranchG => if state.flags.g { state.branch(op) } else { state },
-        BranchE => if state.flags.e { state.branch(op) } else { state },
-        BranchNE => if !state.flags.e { state.branch(op) } else { state },
+        BranchL => if state.flags.cmp_l { state.branch(op) } else { state },
+        BranchG => if state.flags.cmp_g { state.branch(op) } else { state },
+        BranchE => if state.flags.cmp_e { state.branch(op) } else { state },
+        BranchNE => if !state.flags.cmp_e { state.branch(op) } else { state },
 
         GetSp => state.register_modify(reg, |_| state.sp),
         SetSp => State { sp: state.operand(op), ..state },
         Push => {
             let new_sp = state.sp - 1;
-            store(mem, new_sp, state.operand(op));
+            mem.store(new_sp, state.register(reg))?;
             State { sp: new_sp, ..state }
         },
         Pop => {
-            let val = load(&mem, state.sp);
+            let val = mem.load(state.sp)?;
             State { sp: state.sp + 1, ..state.register_modify(reg, |_| val) }
         },
         Call => {
             let new_sp = state.sp - 1;
-            store(mem, new_sp, state.ip);
+            mem.store(new_sp, state.ip)?;
             State { sp: new_sp, ip: state.operand(op), ..state }
         },
         Ret => {
-            let val = load(&mem, state.sp);
+            let val = mem.load(state.sp)?;
             State { sp: state.sp + 1, ip: val, ..state }
         },
 
@@ -79,23 +89,72 @@ pub fn interpret(inst: Instruction, mem: &mut [u32], state: State) -> State {
         Rsh => state.register_modify(reg, |x| x >> state.operand(op)),
 
         Halt     => State { halt: true, ..state },
-        IntSw    => unimplemented!(),
-        IntHw    => unimplemented!(),
-        IntPause => unimplemented!(),
-        IntCont  => unimplemented!(),
-        IntHGet  => unimplemented!(),
-        IntHSet  => unimplemented!(),
-        IntExit  => unimplemented!(),
+        IntSw    => handle_interrupt(state.operand(op), mem, state)?,
+        IntHw    => State { int_outgoing: Some(state.operand(op)), ..state },
+        IntPause => State { flags: Flags { int_pause: true, ..state.flags }, ..state },
+        IntCont  => State { flags: Flags { int_pause: false, ..state.flags }, ..state },
+        IntHGet  => state.register_modify(reg, |_| state.inth),
+        IntHSet  => State { inth: state.operand(op), ..state },
+        IntExit  => {
+            let a     = mem.load(state.sp + 0)?;
+            let ip    = mem.load(state.sp + 1)?;
+            let flags = Flags::from(mem.load(state.sp + 2)?);
+
+            let new_sp = state.sp + 3;
+
+            State { sp: new_sp, ip: ip, a: a, flags: flags, ..state }
+        },
+
+        Trace => {
+            if let Operand::Const(0) = op {
+                info!("trace(ip={:#010x}) {:#?}", state.ip, state);
+            } else {
+                info!("trace(ip={:#010x}) {:?} = {:#010x}", state.ip, op, state.operand(op));
+            }
+            state
+        },
+    })
+}
+
+pub fn handle_interrupt<M>(code: u32, mem: &mut M, state: State) -> Result<State, M::Error>
+    where M: MemBackend + ?Sized {
+
+    if state.inth == 0 {
+        Ok(state)
+    } else {
+        let new_sp = state.sp - 3;
+
+        mem.store(new_sp + 0, state.a)?;
+        mem.store(new_sp + 1, state.ip)?;
+        mem.store(new_sp + 2, state.flags.into())?;
+
+        Ok(State {
+            a: code,
+            sp: new_sp,
+            ip: state.inth,
+            halt: false,
+            flags: Flags {
+                int_pause: true,
+                ..Flags::default()
+            },
+            ..state
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use data::*;
     use data::Function::*;
     use data::Operand::*;
     use data::Register::*;
+
+    // Test-friendly boiler-plate free version
+    fn interpret(instruction: Instruction, mem: &mut [u32], state: State) -> State {
+        super::interpret(instruction, mem, state).unwrap_or_else(|addr| {
+            panic!("out of bounds: {:x}", addr);
+        })
+    }
 
     fn interprets(instructions: &[Instruction], mem: &mut [u32], state: State) -> State {
         instructions.iter().cloned()
@@ -331,11 +390,11 @@ mod tests {
     fn interpret_push() {
         let mut mem = vec![0; 0x04];
 
-        let state0 = State { a: 0xaaa, sp: 0x02, ..State::default() };
+        let state0 = State { a: 0xaaa, b: 0xf000_baaa, sp: 0x02, ..State::default() };
 
         let state1 = interprets(
             &[
-                Instruction(Push, A, Reg(A)),
+                Instruction(Push, A, Reg(C)),
                 Instruction(Push, B, Const(0xdead_beef)),
             ],
             &mut mem,
@@ -344,7 +403,7 @@ mod tests {
 
         assert_eq!(state1, State { sp: 0x00, ..state0 });
 
-        assert_eq!(&mem, &[0xdead_beef, 0xaaa, 0, 0]);
+        assert_eq!(&mem, &[0xf000_baaa, 0xaaa, 0, 0]);
     }
 
     #[test]
