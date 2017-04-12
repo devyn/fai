@@ -84,15 +84,43 @@ Main:
  branch [Main.Loop]
 
 Prompt:
+ set a [m_Newline]
+ call [PrintString]
+
  set a [m_Prompt]
  call [PrintString]
 
  call [ReadChar]
  call [PrintChar]
 
+ cmp a [0x64] ; d
+ branche [DumpMem]
+
  cmp a [0x71] ; q
  branche [Quit]
 
+ ret
+
+DumpMem:
+ set a [m_Newline]
+ call [PrintString]
+
+ set d [s_DumpMemTest]
+
+ DumpMem.loop:
+ cmp d [s_DumpMemTestEnd]
+ branche [DumpMem.ret]
+
+ load a [d]
+ call [PrintHex]
+
+ set a [0x20] ; space
+ call [PrintChar]
+
+ add d [0x1]
+ branch [DumpMem.loop]
+
+ DumpMem.ret:
  ret
 
 Quit:
@@ -143,6 +171,40 @@ PrintString:
  pop b
  pop c
  pop d
+ ret
+
+PrintHex:
+ push c
+ push b
+
+ set b [32]
+ set c [a]
+
+ PrintHex.loop:
+ cmp b [0]
+ branche [PrintHex.ret]
+
+ sub b [4]
+
+ set a [c]
+ rsh a [b]
+ and a [0xf]
+
+ add a [0x30] ; start of digits
+ cmp a [0x3a] ; end of digits
+ branchl [PrintHex.print]
+
+ add a [0x27] ; gap between digits
+              ; and lower alpha
+
+ PrintHex.print:
+ call [PrintChar]
+
+ branch [PrintHex.loop]
+
+ PrintHex.ret:
+ pop b
+ pop c
  ret
 
 PrintChar:
@@ -320,11 +382,31 @@ g_ConsoleIncoming: .words {0}
 ; messages
 m_Ready:
  .len_bytes LE"Ready"
+m_Newline:
+ .len_bytes LE"\r\n"
+m_Where:
+ .len_bytes LE"where"
 m_Prompt:
- .len_bytes LE"\r\n? "
+ .len_bytes LE"? "
+m_Point:
+ .len_bytes LE"> "
 m_KeyboardNotFound:
  .len_bytes LE"
 Keyboard not found.
 Please install a keyboard and reset, or
 use a debug console.
 "
+
+s_DumpMemTest:
+ .words {
+   0x10000000,
+   0x01000000,
+   0x00100000,
+   0x00010000,
+   0x00001000,
+   0x00000100,
+   0x00000010,
+   0x00000001,
+   0xdeadbeef
+ }
+s_DumpMemTestEnd:
