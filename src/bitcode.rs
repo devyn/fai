@@ -15,6 +15,8 @@
 //!
 //! See source code for function/register tables.
 
+#![allow(unused_imports)] // For some reason Rust seems to think our globs are unused
+
 use std::collections::BTreeMap;
 
 use data::*;

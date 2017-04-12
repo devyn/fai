@@ -23,7 +23,7 @@ impl AsmBlock {
             AsmBlock::Words(ref vec)    => vec.len() as u32,
             AsmBlock::Bytes(_, ref vec) => {
                 let len = vec.len() as u32;
-                len / 4 + if len % 4 > 0 { 1 } else { 0 }
+                (len / 4) + (if len % 4 > 0 { 1 } else { 0 })
             }
         }
     }
@@ -70,6 +70,9 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
         sections.iter().map(|&(ref label, ref blocks)| {
             let start = current_ptr;
             current_ptr += blocks.iter().map(|b| b.size()).sum();
+
+            debug!("label_offset {:?}, {:#x}", label, start);
+
             (label.clone(), start)
         }).collect();
 
@@ -82,7 +85,20 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
         Ok(off as i32 - current_ptr as i32)
     };
 
-    for &(_, ref blocks) in sections {
+    for &(ref cur_label, ref blocks) in sections {
+        // Sanity check, just to make sure we don't resolve the wrong addresses
+        {
+            let calculated_offset = label_offsets.get(cur_label).cloned().unwrap_or_else(|| {
+                panic!("Bug check: label {:?} exists in `sections`, but not `label_offsets`",
+                    cur_label);
+            });
+
+            assert!(calculated_offset == current_ptr,
+                "Bug check: Previously calculated offset for label {:?} is {:#x}, but \
+                 we are actually writing its contents at {:#x} for some reason.",
+                cur_label, calculated_offset, current_ptr);
+        }
+
         for block in blocks {
             match *block {
                 AsmBlock::Instruction(AsmInstruction(f, r, ref op)) => {
@@ -117,30 +133,21 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
                     current_ptr += words.len() as u32;
                 },
                 AsmBlock::Bytes(endianness, ref bytes) => {
-                    let mut iter = bytes.iter().cloned().fuse();
+                    fn try_get(slice: &[u8], idx: usize) -> u32 {
+                        slice.get(idx).map(|&x| x as u32).unwrap_or(0)
+                    }
 
-                    let mut ended = false;
-
-                    while !ended {
-                        let mut word_bytes = [0u32; 4];
-
-                        for idx in 0..4 {
-                            word_bytes[idx] = iter.next().unwrap_or_else(|| {
-                                ended = true;
-                                0
-                            }) as u32;
-                        }
-
+                    for word_bytes in bytes.chunks(4) {
                         if let AsmEndianness::Big = endianness {
-                            out.push((word_bytes[3] <<  0) |
-                                     (word_bytes[2] <<  8) |
-                                     (word_bytes[1] << 16) |
-                                     (word_bytes[0] << 24));
+                            out.push((try_get(word_bytes, 3) <<  0) |
+                                     (try_get(word_bytes, 2) <<  8) |
+                                     (try_get(word_bytes, 1) << 16) |
+                                     (try_get(word_bytes, 0) << 24));
                         } else {
-                            out.push((word_bytes[0] <<  0) |
-                                     (word_bytes[1] <<  8) |
-                                     (word_bytes[2] << 16) |
-                                     (word_bytes[3] << 24));
+                            out.push((try_get(word_bytes, 0) <<  0) |
+                                     (try_get(word_bytes, 1) <<  8) |
+                                     (try_get(word_bytes, 2) << 16) |
+                                     (try_get(word_bytes, 3) << 24));
                         }
 
                         current_ptr += 1;
@@ -740,6 +747,37 @@ fn test_operand_relative_neg() {
 fn test_operand_label() {
     assert_eq!(
         operand( &b"FooFunction"[..] ),
-        IResult::Done( &b""[..], AsmOperand::Label("FooFunction".into()) )
+        IResult::Done( &b""[..], AsmOperand::Label("FooFunction".into(), 0) )
     );
+}
+
+#[test]
+fn test_len_bytes_le_size8() {
+    assert_eq!(
+        dir_len_bytes( &br#"LE"confirm ""#[..] ),
+        IResult::Done( &b""[..], AsmBlock::Bytes(AsmEndianness::Little,
+                                                 b"\x08\x00\x00\x00confirm ".to_vec()) )
+    );
+}
+
+#[test]
+fn test_asm_block_bytes_le_size12_wordsize3() {
+    let block = AsmBlock::Bytes(AsmEndianness::Little,
+                                b"\x08\x00\x00\x00confirm ".to_vec());
+
+    assert_eq!(block.size(), 3);
+}
+
+#[test]
+fn test_blocks_to_instructions_bytes_le_size12() {
+    let block = AsmBlock::Bytes(AsmEndianness::Little,
+                                b"\x08\x00\x00\x00confirm ".to_vec());
+
+    let program = vec![("".into(), vec![block])];
+
+    let mut out = vec![];
+
+    blocks_to_instructions(&program[..], &mut out).unwrap();
+
+    assert_eq!(&out[..], &[0x8, 0x666e6f63, 0x206d7269]);
 }

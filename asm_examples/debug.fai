@@ -105,19 +105,87 @@ DumpMem:
  set a [m_Newline]
  call [PrintString]
 
- set d [s_DumpMemTest]
+ ; start? ...
+ set a [m_Start]
+ call [PrintString]
+
+ set a [m_Prompt]
+ call [PrintString]
+
+ call [ReadHexLine]
+ push a
+
+ set a ['\n']
+ call [PrintChar]
+
+ ; end? ...
+ set a [m_End]
+ call [PrintString]
+
+ set a [m_Prompt]
+ call [PrintString]
+
+ call [ReadHexLine]
+ push a
+
+ set a ['\n']
+ call [PrintChar]
+
+ pop c
+ pop d
+
+ ; confirm?
+ set a [m_Confirm]
+ call [PrintString]
+
+ set a [d]
+ call [PrintHex]
+
+ set a [m_Range]
+ call [PrintString]
+
+ set a [c]
+ call [PrintHex]
+
+ set a [m_YesNo]
+ call [PrintString]
+
+ call [ReadChar]
+ cmp a ['y']
+ branchne [DumpMem.ret]
+
+ set a [m_Newline]
+ call [PrintString]
+
+ set a ['\n']
+ call [PrintChar] ; extra newline
+
+ ; mod 4 counter, determines newline
+ set b [0]
 
  DumpMem.loop:
- cmp d [s_DumpMemTestEnd]
+ cmp d [c]
  branche [DumpMem.ret]
 
  load a [d]
  call [PrintHex]
 
+ add d [0x1]
+
+ add b [1]
+ and b [0b11] ; mod 4
+ cmp b [0]
+ branche [DumpMem.newline]
+
  set a [' ']
  call [PrintChar]
+ branch [DumpMem.loop]
 
- add d [0x1]
+ DumpMem.newline:
+ set a ['\r']
+ call [PrintChar]
+ set a ['\n']
+ call [PrintChar]
  branch [DumpMem.loop]
 
  DumpMem.ret:
@@ -288,7 +356,6 @@ ReadChar:
  cmp a [0]
  branchne [ReadChar.received]
  halt
- trace
  branch [ReadChar.wait]
 
  ReadChar.received:
@@ -302,6 +369,82 @@ ReadChar:
  pop b
  pop c
  intcont
+ ret
+
+; hex in a
+; char & (1 << 31) if error
+; call with a = 1 to echo
+ReadHex:
+ cmp a [1]
+ branchne [ReadHex.noEcho]
+
+ call [ReadChar]
+ call [PrintChar]
+ branch [ReadHex.tryDecimal]
+
+ ReadHex.noEcho:
+ call [ReadChar]
+
+ ReadHex.tryDecimal:
+ cmp a ['0']
+ branchl [ReadHex.retError]
+ cmp a ['9']
+ branchg [ReadHex.tryAlphaUpper]
+
+ sub a ['0']
+ ret
+
+ ReadHex.tryAlphaUpper:
+ cmp a ['A']
+ branchl [ReadHex.retError]
+ cmp a ['F']
+ branchg [ReadHex.tryAlphaLower]
+
+ sub a ['A' - 10]
+ ret
+
+ ReadHex.tryAlphaLower:
+ cmp a ['a']
+ branchl [ReadHex.retError]
+ cmp a ['f']
+ branchg [ReadHex.retError]
+
+ sub a ['a' - 10]
+ ret
+
+ ReadHex.retError:
+ or a [1 << 31]
+ ret
+
+ReadHexLine:
+ push b
+ set b [0]
+
+ ReadHexLine.loop:
+ set a [1]
+ call [ReadHex]
+ push a
+ and a [1 << 31]
+ cmp a [0]
+ branche [ReadHexLine.ok]
+
+ pop a
+ cmp a ['\r' | (1 << 31)]
+ branche [ReadHexLine.ret]
+
+ ; Unrecognized character. Skip it
+ branch [ReadHexLine.loop]
+
+ ReadHexLine.ok:
+ pop a
+ and a [0xf]
+ lsh b [4]
+ or b [a]
+ branch [ReadHexLine.loop]
+
+ ReadHexLine.ret:
+ set a [b]
+ pop b
  ret
 
 IntHandler:
@@ -386,27 +529,23 @@ m_Newline:
  .len_bytes LE"\r\n"
 m_Where:
  .len_bytes LE"where"
+m_Start:
+ .len_bytes LE"start"
+m_End:
+ .len_bytes LE"end"
+m_Confirm:
+ .len_bytes LE"confirm "
+m_Range:
+ .len_bytes LE" .. "
+m_YesNo:
+ .len_bytes LE" (y/n)? "
 m_Prompt:
  .len_bytes LE"? "
 m_Point:
  .len_bytes LE"> "
 m_KeyboardNotFound:
  .len_bytes LE"
-Keyboard not found.
-Please install a keyboard and reset, or
-use a debug console.
+Keyboard not found.\r
+Please install a keyboard and reset,\r
+or use a debug console.\r
 "
-
-s_DumpMemTest:
- .words {
-   0x10000000,
-   0x01000000,
-   0x00100000,
-   0x00010000,
-   0x00001000,
-   0x00000100,
-   0x00000010,
-   0x00000001,
-   0xdeadbeef
- }
-s_DumpMemTestEnd:

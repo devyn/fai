@@ -270,14 +270,16 @@ mod tests {
                 ..State::default()
             };
 
-        let cases = &[
-            (A, Reg(B), Flags { l: true, g: false, e: false }),
-            (C, Reg(B), Flags { l: false, g: true, e: false }),
-            (D, Reg(B), Flags { l: false, g: false, e: true }),
+        let fd = Flags::default();
 
-            (A, Const(2), Flags { l: true, g: false, e: false }),
-            (B, Const(2), Flags { l: false, g: false, e: true }),
-            (C, Const(2), Flags { l: false, g: true, e: false }),
+        let cases = &[
+            (A, Reg(B), Flags { cmp_l: true,  cmp_g: false, cmp_e: false, ..fd }),
+            (C, Reg(B), Flags { cmp_l: false, cmp_g: true,  cmp_e: false, ..fd }),
+            (D, Reg(B), Flags { cmp_l: false, cmp_g: false, cmp_e: true,  ..fd }),
+
+            (A, Const(2), Flags { cmp_l: true,  cmp_g: false, cmp_e: false, ..fd }),
+            (B, Const(2), Flags { cmp_l: false, cmp_g: false, cmp_e: true,  ..fd }),
+            (C, Const(2), Flags { cmp_l: false, cmp_g: true,  cmp_e: false, ..fd }),
         ];
 
         for &(reg, op, flags) in cases {
@@ -308,9 +310,10 @@ mod tests {
 
         for flag_bits in 0x0..0x8 {
             let flags = Flags {
-                l: flag_bits & 0x1 != 0,
-                g: flag_bits & 0x2 != 0,
-                e: flag_bits & 0x4 != 0,
+                cmp_l: flag_bits & 0x1 != 0,
+                cmp_g: flag_bits & 0x2 != 0,
+                cmp_e: flag_bits & 0x4 != 0,
+                ..Flags::default()
             };
 
             let state0 = State { b: 0xf3f3_1a1a, flags: flags, ..State::default() };
@@ -331,22 +334,22 @@ mod tests {
 
     #[test]
     fn interpret_branchl() {
-        test_branch_flag(BranchL, |flags| flags.l);
+        test_branch_flag(BranchL, |flags| flags.cmp_l);
     }
 
     #[test]
     fn interpret_branchg() {
-        test_branch_flag(BranchG, |flags| flags.g);
+        test_branch_flag(BranchG, |flags| flags.cmp_g);
     }
 
     #[test]
     fn interpret_branche() {
-        test_branch_flag(BranchE, |flags| flags.e);
+        test_branch_flag(BranchE, |flags| flags.cmp_e);
     }
 
     #[test]
     fn interpret_branchne() {
-        test_branch_flag(BranchNE, |flags| !flags.e);
+        test_branch_flag(BranchNE, |flags| !flags.cmp_e);
     }
 
     #[test]
