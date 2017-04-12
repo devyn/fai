@@ -43,7 +43,7 @@ enum AsmOperand {
     Reg(Register),
     Const(u32),
     Relative(i32),
-    Label(Label)
+    Label(Label, i32)
 }
 
 pub fn assemble(code: &[u8], out: &mut Vec<u32>) -> Result<u32, String> {
@@ -91,8 +91,8 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
                             Some(AsmOperand::Reg(r))           => Operand::Reg(r),
                             Some(AsmOperand::Const(c))         => Operand::Const(c),
                             Some(AsmOperand::Relative(cr))     => Operand::Relative(cr),
-                            Some(AsmOperand::Label(ref label)) =>
-                                Operand::Relative(resolve(current_ptr, label)?),
+                            Some(AsmOperand::Label(ref label, offset)) =>
+                                Operand::Relative(resolve(current_ptr, label)? + offset),
                             None => Operand::Const(0)
                         })
                     );
@@ -194,6 +194,22 @@ named!(label<&[u8], Label>,
         }) >>
 
         ( full )
+    )
+);
+
+named!(label_with_offset<&[u8], (Label, i32)>,
+    do_parse!(
+        lab: label >>
+        opt!(space) >>
+        op: one_of!("+-") >>
+        opt!(space) >>
+        num: constant >>
+
+        (lab, match op {
+            '+' => num as i32,
+            '-' => -(num as i32),
+            _ => unreachable!()
+        })
     )
 );
 
@@ -408,7 +424,8 @@ named!(operand<&[u8], AsmOperand>,
         map!(register, AsmOperand::Reg) |
         map!(relative, AsmOperand::Relative) |
         map!(constant, AsmOperand::Const) |
-        map!(label, AsmOperand::Label)
+        map!(label_with_offset, |(l, o)| AsmOperand::Label(l, o)) |
+        map!(label, |x| AsmOperand::Label(x, 0))
     )
 );
 
@@ -429,6 +446,65 @@ named!(relative<&[u8], i32>,
 );
 
 named!(constant<&[u8], u32>,
+    alt_complete!(
+        constant_binary_expr | constant_not_free
+    )
+);
+
+named!(constant_not_free<&[u8], u32>,
+    alt_complete!(
+        constant_in_parens | constant_unary_expr | integer
+    )
+);
+
+named!(constant_in_parens<&[u8], u32>,
+    delimited!(tag!("("), ws!(constant), tag!(")"))
+);
+
+named!(constant_unary_expr<&[u8], u32>,
+    do_parse!(
+        tag!("~") >>
+        opt!(complete!(space)) >>
+        a: constant_not_free >>
+        (!a)
+    )
+);
+
+named!(constant_binary_expr<&[u8], u32>,
+    do_parse!(
+        a: constant_not_free >>
+        opt!(complete!(space)) >>
+        operator: alt_complete!(
+            tag!("+") |
+            tag!("-") |
+            tag!("*") |
+            tag!("**") |
+            tag!("/") |
+            tag!("&") |
+            tag!("|") |
+            tag!("^") |
+            tag!("<<") |
+            tag!(">>")
+        ) >>
+        opt!(complete!(space)) >>
+        b: constant_not_free >>
+        (match operator {
+            b"+"  => a + b,
+            b"-"  => a - b,
+            b"*"  => a * b,
+            b"**" => a.pow(b),
+            b"/"  => a / b,
+            b"&"  => a & b,
+            b"|"  => a | b,
+            b"^"  => a ^ b,
+            b"<<" => a << b,
+            b">>" => a >> b,
+            _ => unreachable!()
+        })
+    )
+);
+
+named!(integer<&[u8], u32>,
     do_parse!(
         sign: opt!(one_of!("-+")) >>
         num: alt_complete!(c_hex | c_binary | c_octal | c_decimal) >>
