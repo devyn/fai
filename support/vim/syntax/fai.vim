@@ -42,10 +42,13 @@ syn region faiString start='BE"' end='"' contains=faiEscape
 syn region faiString start='LE"' end='"' contains=faiEscape
 
 syn match faiRelative contained '\$'
-syn match faiOperator '[+-]'
+
+syn match faiOperator '[~&|^*/+-]'
+syn match faiOperator '>>'
+syn match faiOperator '<<'
 
 syn region faiOperand start="\[" end="\]" transparent
-      \ contains=faiRegister,faiNumber,faiRelative
+      \ contains=faiRegister,faiNumber,faiOperator,faiRelative
 
 let b:current_syntax = "fai"
 
