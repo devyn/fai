@@ -255,7 +255,7 @@ IntHandler:
  load b [g_ConsoleAddr]
  add b [1]
  load b [b] ; incoming
- or b [0x80000000] ; set highest bit
+ or b [1 << 31] ; set highest bit
  store b [g_ConsoleIncoming]
  branch [IntHandler.ret]
 
