@@ -34,7 +34,9 @@ syn match faiLabelDef '[_A-Za-z][_.A-Za-z0-9]*:'
 
 syn region faiWords start="{" end="}" fold transparent contains=faiNumber
 
-syn match faiEscape contained '\\[\\"rn]'
+syn match faiEscape contained '\\[\\"'rn]'
+
+syn region faiCharacter start="'" end="'" contains=faiEscape
 
 syn region faiString start='be"' end='"' contains=faiEscape
 syn region faiString start='le"' end='"' contains=faiEscape
@@ -48,7 +50,7 @@ syn match faiOperator '>>'
 syn match faiOperator '<<'
 
 syn region faiOperand start="\[" end="\]" transparent
-      \ contains=faiRegister,faiNumber,faiOperator,faiRelative
+      \ contains=faiRegister,faiNumber,faiOperator,faiCharacter,faiRelative
 
 let b:current_syntax = "fai"
 
@@ -60,6 +62,7 @@ hi def link faiTodo       Todo
 hi def link faiComment    Comment
 hi def link faiLabelDef   Function
 hi def link faiEscape     SpecialChar
+hi def link faiCharacter  Character
 hi def link faiString     String
 hi def link faiRelative   Identifier
 hi def link faiOperator   Operator

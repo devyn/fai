@@ -320,14 +320,19 @@ fn is_string_safe(c: u8) -> bool {
 named!(string_safe_bytes, take_while1!(is_string_safe));
 
 named!(string<&[u8], Vec<u8>>,
-    delimited!(one_of!("\""), escaped_transform!(string_safe_bytes, b'\\',
-        alt_complete!(
-            tag!("\\") => { |_| &b"\\"[..] } |
-            tag!("\"") => { |_| &b"\""[..] } |
-            tag!("n")  => { |_| &b"\n"[..] } |
-            tag!("r")  => { |_| &b"\r"[..] }
-        )
-    ), one_of!("\""))
+    delimited!(one_of!("\""),
+        escaped_transform!(string_safe_bytes, b'\\', call!(string_escape))
+    , one_of!("\""))
+);
+
+named!(string_escape,
+    alt_complete!(
+        tag!("\\") => { |_| &b"\\"[..] } |
+        tag!("\"") => { |_| &b"\""[..] } |
+        tag!("'")  => { |_| &b"'"[..]  } |
+        tag!("n")  => { |_| &b"\n"[..] } |
+        tag!("r")  => { |_| &b"\r"[..] }
+    )
 );
 
 named!(asm_instruction<&[u8], AsmInstruction>,
@@ -453,7 +458,7 @@ named!(constant<&[u8], u32>,
 
 named!(constant_not_free<&[u8], u32>,
     alt_complete!(
-        constant_in_parens | constant_unary_expr | integer
+        constant_in_parens | constant_unary_expr | character | integer
     )
 );
 
@@ -501,6 +506,21 @@ named!(constant_binary_expr<&[u8], u32>,
             b">>" => a >> b,
             _ => unreachable!()
         })
+    )
+);
+
+named!(character<&[u8], u32>,
+    map!(
+        delimited!(tag!("'"),
+            alt_complete!(
+                preceded!(tag!("\\"), string_escape) |
+                verify!(take!(1), |bytes: &[u8]| { bytes[0] != b'\'' && bytes[0] != b'\\' })
+            )
+        , tag!("'")),
+
+        |bytes: &[u8]| {
+            bytes[0] as u32
+        }
     )
 );
 

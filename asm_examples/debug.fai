@@ -93,10 +93,10 @@ Prompt:
  call [ReadChar]
  call [PrintChar]
 
- cmp a [0x64] ; d
+ cmp a ['d']
  branche [DumpMem]
 
- cmp a [0x71] ; q
+ cmp a ['q']
  branche [Quit]
 
  ret
@@ -114,7 +114,7 @@ DumpMem:
  load a [d]
  call [PrintHex]
 
- set a [0x20] ; space
+ set a [' ']
  call [PrintChar]
 
  add d [0x1]
@@ -190,12 +190,12 @@ PrintHex:
  rsh a [b]
  and a [0xf]
 
- add a [0x30] ; start of digits
- cmp a [0x3a] ; end of digits
+ add a ['0'] ; start of digits
+ cmp a ['9' + 1] ; end of digits
  branchl [PrintHex.print]
 
- add a [0x27] ; gap between digits
-              ; and lower alpha
+ ; gap between digits and lower alpha
+ add a ['a' - ('9' + 1)]
 
  PrintHex.print:
  call [PrintChar]
