@@ -281,6 +281,8 @@ PrintChar:
  push b
  push a
 
+ and a [0xff]
+
  ; Do we need to use the console or the
  ; monitor?
  load b [g_MonitorAddr]
@@ -288,9 +290,15 @@ PrintChar:
  branche [PrintChar.Console]
 
  PrintChar.Monitor:
- ; Set c to current char index
  load c [g_MonitorY]
  load d [g_MonitorX]
+
+ cmp a ['\r']
+ branche [PrintChar.monitorCR]
+ cmp a ['\n']
+ branche [PrintChar.monitorLF]
+
+ ; Set c to current char index
  mul c [40] ; 40 chars per row
  add c [d]
 
@@ -312,10 +320,38 @@ PrintChar:
 
  ; Replace
  pop a
- and a [0xff]
  lsh a [d]
  or c [a]
 
+ ; Store modified
+ store c [b]
+
+ ; Advance cursor
+ load c [g_MonitorY]
+ load d [g_MonitorX]
+
+ add d [1]
+ cmp d [40] ; end of line
+ branchl [PrintChar.storeCursor]
+
+ set d [0]
+
+ PrintChar.monitorLF:
+ add c [1]
+ cmp c [20] ; end of screen
+ branchl [PrintChar.storeCursor]
+
+ call [MonitorScroll]
+ sub c [1]
+
+ branch [PrintChar.storeCursor]
+
+ PrintChar.monitorCR:
+ set d [0]
+
+ PrintChar.storeCursor:
+ store c [g_MonitorY]
+ store d [g_MonitorX]
  branch [PrintChar.ret]
 
  PrintChar.Console:
@@ -334,6 +370,32 @@ PrintChar:
  pop b
  pop c
  pop d
+ ret
+
+MonitorScroll:
+ push c
+ push b
+ push a
+
+ load a [g_MonitorAddr]
+ add a [10]
+
+ set b [a]
+ add b [210] ; full screen + 10
+
+ MonitorScroll.loop:
+ load c [a]
+ sub a [10]
+ store c [a]
+ add a [10]
+
+ cmp a [b]
+ branche [MonitorScroll.ret]
+
+ MonitorScroll.ret:
+ pop a
+ pop b
+ pop c
  ret
 
 ReadChar:
@@ -545,7 +607,7 @@ m_Point:
  .len_bytes LE"> "
 m_KeyboardNotFound:
  .len_bytes LE"
-Keyboard not found.\r
-Please install a keyboard and reset,\r
-or use a debug console.\r
+\rKeyboard not found.
+\rPlease install a keyboard and reset,
+\ror use a debug console.
 "

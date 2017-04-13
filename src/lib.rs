@@ -20,4 +20,5 @@ pub mod hardware;
 pub mod event_pool;
 pub mod device;
 pub mod ram;
+pub mod monitor;
 pub mod stdio_console;
