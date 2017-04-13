@@ -387,10 +387,11 @@ MonitorScroll:
  load c [a]
  sub a [10]
  store c [a]
- add a [10]
+ add a [11]
 
  cmp a [b]
- branche [MonitorScroll.ret]
+ branchl [MonitorScroll.loop]
+ branch [MonitorScroll.ret]
 
  MonitorScroll.ret:
  pop a
@@ -403,6 +404,22 @@ ReadChar:
  push c
  push b
 
+ load c [g_KeyboardInt]
+ cmp c [0]
+ branche [ReadChar.Console]
+
+ ReadChar.Keyboard:
+ set a [0]
+ store a [g_KeyboardIncoming]
+
+ inthw [c] ; Any interrupt is Ack
+
+ set c [g_KeyboardIncoming]
+
+ intcont
+ branch [ReadChar.wait]
+
+ ReadChar.Console:
  load b [g_ConsoleAddr]
  load c [g_ConsoleInt]
 
@@ -411,10 +428,13 @@ ReadChar:
 
  store a [b] ; int_select = Ack
  inthw [c]
+
+ set c [g_ConsoleIncoming]
+
  intcont
 
  ReadChar.wait:
- load a [g_ConsoleIncoming]
+ load a [c] ; c = incoming ptr
  cmp a [0]
  branchne [ReadChar.received]
  halt
@@ -426,8 +446,9 @@ ReadChar:
 
  ; Make sure we clear incoming
  set b [0]
- store b [g_ConsoleIncoming]
+ store b [c]
 
+ ReadChar.ret:
  pop b
  pop c
  intcont
@@ -512,9 +533,16 @@ ReadHexLine:
 IntHandler:
  push b
 
+ cmp a [0]
+ branche [IntHandler.ret]
+
  load b [g_ConsoleInt]
  cmp a [b]
  branche [IntHandler.console]
+
+ load b [g_KeyboardInt]
+ cmp a [b]
+ branche [IntHandler.keyboard]
 
  branch [IntHandler.ret]
 
@@ -524,6 +552,13 @@ IntHandler:
  load b [b] ; incoming
  or b [1 << 31] ; set highest bit
  store b [g_ConsoleIncoming]
+ branch [IntHandler.ret]
+
+ IntHandler.keyboard:
+ load b [g_KeyboardAddr]
+ load b [b] ; incoming
+ or b [1 << 31] ; set highest bit
+ store b [g_KeyboardIncoming]
  branch [IntHandler.ret]
 
  IntHandler.ret:
@@ -575,14 +610,15 @@ FindDevice:
  ret
 
 ; global vars
-g_MonitorAddr:     .words {0}
-g_MonitorX:        .words {0}
-g_MonitorY:        .words {0}
-g_KeyboardAddr:    .words {0}
-g_KeyboardInt:     .words {0}
-g_ConsoleAddr:     .words {0}
-g_ConsoleInt:      .words {0}
-g_ConsoleIncoming: .words {0}
+g_MonitorAddr:      .words {0}
+g_MonitorX:         .words {0}
+g_MonitorY:         .words {0}
+g_KeyboardAddr:     .words {0}
+g_KeyboardInt:      .words {0}
+g_KeyboardIncoming: .words {0}
+g_ConsoleAddr:      .words {0}
+g_ConsoleInt:       .words {0}
+g_ConsoleIncoming:  .words {0}
 
 ; messages
 m_Ready:

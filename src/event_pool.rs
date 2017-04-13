@@ -24,6 +24,10 @@ impl EventPool {
         }
     }
 
+    pub fn ts(&self) -> u64 {
+        self.ts
+    }
+
     pub fn dispatch<'a>(&'a mut self) -> Dispatch<'a> {
         Dispatch {
             ensure_from: None,
