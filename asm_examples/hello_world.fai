@@ -1,0 +1,21 @@
+  set a [0x80000 + 180]
+  load b [m_HelloWorld]
+  add b [4]
+  set c [m_HelloWorld + 1]
+
+loop:
+  load d [c]
+  store d [a]
+
+  add a [1]
+  add c [1]
+  sub b [4]
+
+  cmp b [4]
+  branchg [loop]
+
+done:
+  ret
+
+m_HelloWorld:
+  .len_bytes LE"          Hello, world!          "

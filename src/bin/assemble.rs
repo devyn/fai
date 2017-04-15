@@ -115,7 +115,7 @@ fn output_pretty<W: Write>(bitcode: &[u32], mut out_stream: W) -> io::Result<()>
 
 fn output_plain_text<W: Write>(bitcode: &[u32], mut out_stream: W) -> io::Result<()> {
     for &word in bitcode {
-        writeln!(out_stream, "{:08x}", word)?;
+        writeln!(out_stream, "{:x}", word)?;
     }
 
     Ok(())

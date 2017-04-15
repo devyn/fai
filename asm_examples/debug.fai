@@ -96,6 +96,12 @@ Prompt:
  cmp a ['d']
  branche [DumpMem]
 
+ cmp a ['w']
+ branche [WriteMem]
+
+ cmp a ['j']
+ branche [Jump]
+
  cmp a ['q']
  branche [Quit]
 
@@ -189,6 +195,100 @@ DumpMem:
  branch [DumpMem.loop]
 
  DumpMem.ret:
+ ret
+
+WriteMem:
+ set a [m_Newline]
+ call [PrintString]
+
+ ; where? ...
+ set a [m_Where]
+ call [PrintString]
+
+ set a [m_Prompt]
+ call [PrintString]
+
+ call [ReadHexLine]
+ set d [a]
+
+ set a ['\n']
+ call [PrintChar]
+ call [PrintChar]
+
+ ; main loop
+ WriteMem.loop:
+ set a [d]
+ call [PrintHex]
+
+ set a [m_Point]
+ call [PrintString]
+
+ call [ReadHexLine]
+ cmp c [0]
+ branche [WriteMem.ret]
+
+ store a [d]
+
+ set a ['\n']
+ call [PrintChar]
+
+ add d [1]
+ branch [WriteMem.loop]
+
+ WriteMem.ret:
+ set a ['\n']
+ call [PrintChar]
+ ret
+
+Jump:
+ set a [m_Newline]
+ call [PrintString]
+
+ ; where? ...
+ set a [m_Where]
+ call [PrintString]
+
+ set a [m_Prompt]
+ call [PrintString]
+
+ call [ReadHexLine]
+ set d [a]
+
+ set a ['\n']
+ call [PrintChar]
+ call [PrintChar]
+
+ ; confirm?
+ set a [m_Confirm]
+ call [PrintString]
+
+ set a [d]
+ call [PrintHex]
+
+ set a [m_YesNo]
+ call [PrintString]
+
+ call [ReadChar]
+ cmp a ['y']
+ branchne [Jump.abort]
+
+ set a [m_Newline]
+ call [PrintString]
+
+ set a ['\n']
+ call [PrintChar] ; extra newline
+
+ ; clear registers
+ push d
+ set a [0]
+ set b [0]
+ set c [0]
+ set d [0]
+
+ ; stack has address. use fake ret
+ ret ; to former d
+
+ Jump.abort:
  ret
 
 Quit:
@@ -502,6 +602,7 @@ ReadHex:
 ReadHexLine:
  push b
  set b [0]
+ set c [0]
 
  ReadHexLine.loop:
  set a [1]
@@ -523,6 +624,7 @@ ReadHexLine:
  and a [0xf]
  lsh b [4]
  or b [a]
+ add c [1]
  branch [ReadHexLine.loop]
 
  ReadHexLine.ret:

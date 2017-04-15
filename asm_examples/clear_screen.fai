@@ -1,0 +1,10 @@
+  set a [0x80000]
+  set b [0]
+loop:
+  cmp a [0x94000]
+  branche [stop]
+  store b [a]
+  add a [1]
+  branch [loop]
+stop:
+  ret
