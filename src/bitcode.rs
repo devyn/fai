@@ -1,6 +1,6 @@
 //! Fai bitcode
 //!
-//! Each instruction is two 32-bit words
+//! Each instruction is either one or two 32-bit words
 //!
 //! ```text
 //! 0 - 15: Function
@@ -9,7 +9,13 @@
 //! 19 - 20: IF REGISTER(#18): Register content of operand
 //! 21: IF CONSTANT(#18): Constant should be interpreted as signed (i32), relative to this
 //!     instruction's location in memory
-//! 22 - 31: Reserved for future use (must be zero)
+//! 22: Single word instruction - constant will default to zero
+//! 23 - 31: Reserved for future use (must be zero)
+//! ```
+//!
+//! If double word instruction (#22 = 0):
+//!
+//! ```text
 //! 32 - 63: IF CONSTANT(#18): Constant content of operand
 //! ```
 //!
@@ -102,20 +108,58 @@ pub fn decode_register(r: u32) -> Register {
     *REGISTERS.get(&(r & 0x3)).unwrap()
 }
 
-pub fn encode_instruction(inst: Instruction) -> (u32, u32) {
+pub fn encode_instruction(inst: Instruction, out: &mut Vec<u32>) {
     let Instruction(fun, reg, op) = inst;
 
     let fi = encode_function(fun);
     let ri = encode_register(reg);
 
     match op {
-        Reg(op_reg) => (fi | (ri << 16) | (1 << 18) | (encode_register(op_reg) << 19), 0),
-        Const(op_const) => (fi | (ri << 16), op_const),
-        Relative(op_relative) => (fi | (ri << 16) | (1 << 21), op_relative as u32),
+        Reg(op_reg) => {
+            out.push(
+                fi |
+                (ri << 16) |
+                (1 << 18) |
+                (encode_register(op_reg) << 19) |
+                (1 << 22)
+            );
+        },
+        Const(op_const) => {
+            let n = fi | (ri << 16);
+
+            if op_const == 0 {
+                out.push(n | (1 << 22));
+            } else {
+                out.push(n);
+                out.push(op_const);
+            }
+        },
+        Relative(op_relative) => {
+            // We could actually do the same as Const if we get Relative(0), but it's not very
+            // common and the possibility makes the assembler's label handling more complicated.
+            //
+            // So we just let the assembler expect that Relative always results in two words.
+            out.push(fi | (ri << 16) | (1 << 21));
+            out.push(op_relative as u32);
+        }
     }
 }
 
-pub fn decode_instruction(words: (u32, u32)) -> Instruction {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodeError {
+    NeedMore,
+}
+
+pub fn decode_instruction(words: &[u32]) -> Result<Instruction, DecodeError> {
+    // Handle compact (single word) instructions
+    let words =
+        if words[0] & (1 << 22) == 0 {
+            (words[0], words.get(1).cloned().ok_or(DecodeError::NeedMore)?)
+        } else {
+            (words[0], 0)
+        };
+
+
     let fi = words.0 & 0xFFFF;
     let ri = (words.0 >> 16) & 0x3;
 
@@ -137,7 +181,7 @@ pub fn decode_instruction(words: (u32, u32)) -> Instruction {
         _ => unreachable!()
     };
 
-    Instruction(fun, reg, op)
+    Ok(Instruction(fun, reg, op))
 }
 
 #[cfg(test)]
@@ -164,6 +208,17 @@ mod tests {
         0x0002 | (0b00000000 << 16), 0x00000001,
         0x0005 | (0b00000010 << 16), 0x00000002,
         0x0007 | (0b00100000 << 16), 0x00000008,
+        0x0013 | (0b01010100 << 16),
+        0x0012 | (0b00000010 << 16), 0x00000001,
+        0x0006 | (0b00100000 << 16), 0xfffffff8,
+        0x0010 | (0b01000000 << 16),
+        0x001C | (0b01000000 << 16),
+    ];
+
+    static PROGRAM_BITS_ALT: &'static [u32] = &[
+        0x0002 | (0b00000000 << 16), 0x00000001,
+        0x0005 | (0b00000010 << 16), 0x00000002,
+        0x0007 | (0b00100000 << 16), 0x00000008,
         0x0013 | (0b00010100 << 16), 0x00000000,
         0x0012 | (0b00000010 << 16), 0x00000001,
         0x0006 | (0b00100000 << 16), 0xfffffff8,
@@ -171,22 +226,45 @@ mod tests {
         0x001C | (0b00000000 << 16), 0x00000000,
     ];
 
-    #[test]
-    fn encode() {
-        let mut mem = vec![0; 0x10];
-
-        let instructions = PROGRAM_INST;
-
-        let mut ptr = 0;
+    fn encode_all(instructions: &[Instruction]) -> Vec<u32> {
+        let mut out = vec![];
 
         for &inst in instructions {
-            let words = encode_instruction(inst);
-
-            mem[ptr + 0] = words.0;
-            mem[ptr + 1] = words.1;
-
-            ptr += 2;
+            encode_instruction(inst, &mut out);
         }
+
+        out
+    }
+
+    fn decode_all(code: &[u32]) -> Vec<Instruction> {
+        let mut ptr = 0;
+
+        let mut decoded = vec![];
+
+        while ptr < code.len() {
+            let w0 = code[ptr];
+
+            let inst = decode_instruction(&[w0])
+                .or_else(|DecodeError::NeedMore| {
+                    ptr += 1;
+
+                    let w1 = code[ptr];
+
+                    decode_instruction(&[w0, w1])
+                })
+                .unwrap();
+
+            ptr += 1;
+
+            decoded.push(inst);
+        }
+
+        decoded
+    }
+
+    #[test]
+    fn encode() {
+        let mem = encode_all(PROGRAM_INST);
 
         let bits = PROGRAM_BITS;
 
@@ -201,55 +279,21 @@ mod tests {
 
     #[test]
     fn decode() {
-        let instructions = PROGRAM_INST;
-        let mem = PROGRAM_BITS;
+        let decoded = decode_all(PROGRAM_BITS);
 
-        let mut ptr = 0;
-
-        let mut decoded = vec![];
-
-        while ptr < 0x10 {
-            let w0 = mem[ptr + 0];
-            let w1 = mem[ptr + 1];
-
-            decoded.push(decode_instruction((w0, w1)));
-
-            ptr += 2;
-        }
-
-        assert_eq!(decoded, instructions);
+        assert_eq!(decoded, PROGRAM_INST);
     }
 
     #[test]
     fn symmetry() {
-        let mut mem = vec![0; 0x10];
+        let encoded = encode_all(PROGRAM_INST);
+        let decoded = decode_all(&encoded);
 
-        let instructions = PROGRAM_INST;
+        assert_eq!(decoded, PROGRAM_INST);
+    }
 
-        let mut ptr = 0;
-
-        for &inst in instructions {
-            let words = encode_instruction(inst);
-
-            mem[ptr + 0] = words.0;
-            mem[ptr + 1] = words.1;
-
-            ptr += 2;
-        }
-
-        ptr = 0;
-
-        let mut decoded = vec![];
-
-        while ptr < 0x10 {
-            let w0 = mem[ptr + 0];
-            let w1 = mem[ptr + 1];
-
-            decoded.push(decode_instruction((w0, w1)));
-
-            ptr += 2;
-        }
-
-        assert_eq!(decoded, instructions);
+    #[test]
+    fn decode_dword_equivalents() {
+        assert_eq!(decode_all(PROGRAM_BITS_ALT), decode_all(PROGRAM_BITS));
     }
 }

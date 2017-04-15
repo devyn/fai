@@ -19,7 +19,17 @@ enum AsmBlock {
 impl AsmBlock {
     fn size(&self) -> u32 {
         match *self {
-            AsmBlock::Instruction(_)    => 2,
+            AsmBlock::Instruction(AsmInstruction(_, _, ref op)) => {
+                match *op {
+                    Some(AsmOperand::Reg(_))      => 1,
+                    Some(AsmOperand::Const(0))    => 1,
+                    None                          => 1, // same as Const(0)
+
+                    Some(AsmOperand::Const(_))    => 2,
+                    Some(AsmOperand::Relative(_)) => 2,
+                    Some(AsmOperand::Label(_, _)) => 2,
+                }
+            },
             AsmBlock::Words(ref vec)    => vec.len() as u32,
             AsmBlock::Bytes(_, ref vec) => {
                 let len = vec.len() as u32;
@@ -102,7 +112,9 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
         for block in blocks {
             match *block {
                 AsmBlock::Instruction(AsmInstruction(f, r, ref op)) => {
-                    let words = bitcode::encode_instruction(
+                    let orig_len = out.len();
+
+                    bitcode::encode_instruction(
                         Instruction(f, r.unwrap_or(Register::A), match *op {
                             Some(AsmOperand::Reg(r))           => Operand::Reg(r),
                             Some(AsmOperand::Const(c))         => Operand::Const(c),
@@ -110,22 +122,11 @@ fn blocks_to_instructions(sections: &[(Label, Vec<AsmBlock>)], out: &mut Vec<u32
                             Some(AsmOperand::Label(ref label, offset)) =>
                                 Operand::Relative(resolve(current_ptr, label)? + offset),
                             None => Operand::Const(0)
-                        })
+                        }),
+                        out
                     );
 
-                    if current_ptr % 2 != 0 {
-                        // Align to double-words.
-                        //
-                        // Have not decided whether this will be mandatory for instructions or not,
-                        // but it should make it easier for debug tools.
-                        out.push(0);
-                        current_ptr += 1;
-                    }
-
-                    out.push(words.0);
-                    out.push(words.1);
-
-                    current_ptr += 2;
+                    current_ptr += (out.len() - orig_len) as u32;
                 },
                 AsmBlock::Words(ref words) => {
                     out.extend(words.iter().cloned());
@@ -637,7 +638,7 @@ fn test_fibonacci() {
 
             println!("{:?}", out);
 
-            assert_eq!(out.len(), 17 * 2);
+            assert_eq!(out.len(), 17 * 2 - 9);
         },
         e => panic!("{:?}", e)
     }

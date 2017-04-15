@@ -93,21 +93,48 @@ fn main() {
 fn output_pretty<W: Write>(bitcode: &[u32], mut out_stream: W) -> io::Result<()> {
     let mut current_ptr = 0;
 
+    let mut buf = vec![];
+
     while current_ptr < bitcode.len() {
-        write!(out_stream, "{:08x}    {:08x}", current_ptr, bitcode[current_ptr])?;
+        write!(out_stream, "{:08x}    ", current_ptr)?;
 
-        if current_ptr + 1 < bitcode.len() {
-            write!(out_stream, " {:08x}", bitcode[current_ptr + 1])?;
+        buf.truncate(0);
+        buf.push(bitcode[current_ptr]);
 
-            let inst = bitcode::decode_instruction(
-                (bitcode[current_ptr], bitcode[current_ptr + 1]));
+        let mut inst = None;
 
+        loop {
+            match bitcode::decode_instruction(&buf) {
+                Ok(i) => {
+                    inst = Some(i);
+                    break;
+                },
+                Err(bitcode::DecodeError::NeedMore) => {
+                    current_ptr += 1;
+
+                    if current_ptr >= bitcode.len() {
+                        break;
+                    } else {
+                        buf.push(bitcode[current_ptr]);
+                    }
+                },
+            }
+        }
+
+        for word in &buf {
+            write!(out_stream, " {:08x}", *word)?;
+        }
+
+        if let Some(inst) = inst {
+            if buf.len() < 2 {
+                write!(out_stream, " {:8}", "")?;
+            }
             write!(out_stream, "    {:?}", inst)?;
         }
 
         writeln!(out_stream)?;
 
-        current_ptr += 2;
+        current_ptr += 1;
     }
 
     Ok(())

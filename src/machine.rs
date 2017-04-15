@@ -63,15 +63,26 @@ impl Machine {
 
     fn p_fetch(&mut self) -> Result<(), MemoryError> {
         let ip = self.state.ip;
-
         debug!("p_fetch() ip = {:#010x}", ip);
 
-        let word0 = self.load(ip + 0)?; debug!("p_fetch() word0 = {:#010x}", word0);
-        let word1 = self.load(ip + 1)?; debug!("p_fetch() word1 = {:#010x}", word1);
+        let word0 = self.load(ip)?;
+        debug!("p_fetch() word0 = {:#010x}", word0);
 
-        let inst = decode_instruction((word0, word1));
+        let (inst, count) = match decode_instruction(&[word0]) {
+            Ok(inst) => (inst, 1),
 
-        self.state.ip += 2;
+            Err(DecodeError::NeedMore) => {
+                let word1 = self.load(ip + 1)?;
+                debug!("p_fetch() word1 = {:#010x}", word1);
+
+                let inst = decode_instruction(&[word0, word1])
+                    .unwrap();
+
+                (inst, 2)
+            }
+        };
+
+        self.state.ip += count;
 
         self.transition(PipelineStage::Execute(inst));
 
