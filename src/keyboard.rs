@@ -1,26 +1,20 @@
 use std::sync::mpsc::{Receiver, TryRecvError};
 
-use hardware::{Hardware, Id, HardwareMessage, Cacheable, Route};
+use hardware::{Hardware, Id, HardwareMessage, Route};
 use event_pool::Dispatch;
+use integrated_ram::IntegratedRam;
 
 pub struct Keyboard {
     id: Option<Id>,
     machine: Option<Id>,
     input_rx: Receiver<u32>,
 
-    incoming: u32,
+    ram: IntegratedRam,
 
     on: bool,
     initialize: bool,
     interrupt: bool,
-    acknowledged: bool,
-    request: Option<Request>
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Request {
-    Get(u32),
-    Set(u32, u32)
+    acknowledged: bool
 }
 
 impl Keyboard {
@@ -30,13 +24,12 @@ impl Keyboard {
             machine: None,
             input_rx: input_rx,
 
-            incoming: 0,
+            ram: IntegratedRam::new(1),
 
             on: false,
             initialize: false,
             interrupt: false,
-            acknowledged: false,
-            request: None
+            acknowledged: false
         }
     }
 
@@ -53,16 +46,12 @@ impl Hardware for Keyboard {
     fn receive(&mut self, message: HardwareMessage) {
         use hardware::HardwareMessage::*;
 
+        self.ram.receive(&message);
+
         match message {
             InitializeDevice(route) => {
                 self.initialize = true;
                 self.machine = Some(route.from);
-            },
-            MemGetRequest(_, addr) => {
-                self.request = Some(Request::Get(addr));
-            },
-            MemSetRequest(_, addr, val) => {
-                self.request = Some(Request::Set(addr, val));
             },
             IntMachineToDevice(_) => {
                 self.interrupt = true;
@@ -75,13 +64,13 @@ impl Hardware for Keyboard {
         use hardware::HardwareMessage::*;
 
         if self.initialize {
-            self.incoming = 0;
+            self.ram.reinitialize();
+            self.ram.clear();
 
             self.initialize = false;
             self.on = true;
             self.interrupt = false;
             self.acknowledged = false;
-            self.request = None;
 
             dispatch.send(DeviceReady(self.route()));
 
@@ -97,28 +86,9 @@ impl Hardware for Keyboard {
             return;
         }
 
-        if let Some(request) = self.request.take() {
-            debug!("request: {:?}", request);
-
-            match request {
-                Request::Get(addr) => {
-                    let result = match addr {
-                        0 => self.incoming,
-                        _ => 0
-                    };
-
-                    dispatch.send(MemGetResponse(self.route(), addr, result, Cacheable::No));
-                },
-                Request::Set(addr, _value) => {
-                    // Not writable
-                    let result = match addr {
-                        0 => self.incoming,
-                        _ => 0
-                    };
-
-                    dispatch.send(MemSetResponse(self.route(), addr, result, Cacheable::No));
-                },
-            }
+        if self.ram.has_pending_request() {
+            let route = self.route();
+            self.ram.tick(route, &mut dispatch);
             return;
         }
 
@@ -127,10 +97,10 @@ impl Hardware for Keyboard {
 
             match result {
                 Ok(word) => {
-                    self.incoming = word;
+                    self.ram.words[0] = word;
                     self.acknowledged = false;
 
-                    debug!("incoming updated: {:#x}", self.incoming);
+                    debug!("incoming updated: {:#x}", word);
 
                     dispatch.send(IntDeviceToMachine(self.route()));
                 },

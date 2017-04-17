@@ -1,7 +1,8 @@
 use std::sync::mpsc::Sender;
 
-use hardware::{Hardware, Id, HardwareMessage, Cacheable, Route};
+use hardware::{Hardware, Id, HardwareMessage, Route};
 use event_pool::Dispatch;
+use integrated_ram::{IntegratedRam, Updated};
 
 pub struct Monitor {
     id: Option<Id>,
@@ -9,17 +10,10 @@ pub struct Monitor {
 
     update_tx: Sender<(u32, u32)>,
 
-    vid_mem: Vec<u32>,
+    vid_ram: IntegratedRam,
 
     on: bool,
-    initialize: bool,
-    request: Option<Request>
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Request {
-    Get(u32),
-    Set(u32, u32)
+    initialize: bool
 }
 
 impl Monitor {
@@ -30,11 +24,10 @@ impl Monitor {
 
             update_tx: update_tx,
 
-            vid_mem: vec![],
+            vid_ram: IntegratedRam::new(0),
 
             on: false,
-            initialize: false,
-            request: None
+            initialize: false
         }
     }
 
@@ -51,16 +44,12 @@ impl Hardware for Monitor {
     fn receive(&mut self, message: HardwareMessage) {
         use hardware::HardwareMessage::*;
 
+        self.vid_ram.receive(&message);
+
         match message {
             InitializeDevice(route) => {
                 self.initialize = true;
                 self.machine = Some(route.from);
-            },
-            MemGetRequest(_, addr) => {
-                self.request = Some(Request::Get(addr));
-            },
-            MemSetRequest(_, addr, val) => {
-                self.request = Some(Request::Set(addr, val));
             },
             _ => ()
         }
@@ -70,11 +59,10 @@ impl Hardware for Monitor {
         use hardware::HardwareMessage::*;
 
         if self.initialize {
-            self.vid_mem = vec![0; 200]; // 40x20 = 200 words
+            self.vid_ram = IntegratedRam::new(200); // 40x20 = 200 words
 
             self.initialize = false;
             self.on = true;
-            self.request = None;
 
             dispatch.send(DeviceReady(self.route()));
 
@@ -83,31 +71,10 @@ impl Hardware for Monitor {
         
         if !self.on { return; }
 
-        if let Some(request) = self.request.take() {
-            debug!("request: {:?}", request);
+        let route = self.route();
 
-            match request {
-                Request::Get(addr) => {
-                    let result = self.vid_mem.get(addr as usize).cloned().unwrap_or(0);
-
-                    dispatch.send(MemGetResponse(self.route(), addr, result, Cacheable::Yes));
-                },
-                Request::Set(addr, value) => {
-                    let result = match self.vid_mem.get_mut(addr as usize) {
-                        Some(ptr) => {
-                            *ptr = value;
-
-                            self.update_tx.send((addr, value)).unwrap();
-
-                            value
-                        },
-                        None => 0
-                    };
-
-                    dispatch.send(MemSetResponse(self.route(), addr, result, Cacheable::Yes));
-                },
-            }
-            return;
+        if let Some(Updated(addr)) = self.vid_ram.tick(route, &mut dispatch) {
+            self.update_tx.send((addr, self.vid_ram.words[addr as usize])).unwrap();
         }
     }
 }

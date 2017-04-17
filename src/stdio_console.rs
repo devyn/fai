@@ -5,36 +5,46 @@ use std::sync::mpsc::{SyncSender, Receiver, TryRecvError, sync_channel};
 
 use termion::raw::{RawTerminal, IntoRawMode};
 
-use hardware::{Hardware, Id, HardwareMessage, Cacheable, Route};
+use hardware::{Hardware, Id, HardwareMessage, Route};
 use event_pool::Dispatch;
+use integrated_ram::IntegratedRam;
 
-#[derive(Default)]
+static INT_MESSAGE: usize = 0;
+static INCOMING: usize = 1;
+static OUTGOING: usize = 2;
+
+static ACK: u32 = 0;
+static SEND: u32 = 1;
+
 pub struct StdioConsole {
     id: Option<Id>,
     machine: Option<Id>,
     terminal: Option<RawTerminal<io::Stdout>>,
     stdin_rx: Option<Receiver<u8>>,
 
-    int_message: u32,
-    incoming: u32,
-    outgoing: u32,
+    ram: IntegratedRam,
 
     on: bool,
     initialize: bool,
     interrupt: bool,
-    acknowledged: bool,
-    request: Option<Request>
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Request {
-    Get(u32),
-    Set(u32, u32)
+    acknowledged: bool
 }
 
 impl StdioConsole {
     pub fn new() -> StdioConsole {
-        StdioConsole::default()
+        StdioConsole {
+            id: None,
+            machine: None,
+            terminal: None,
+            stdin_rx: None,
+
+            ram: IntegratedRam::new(3),
+
+            on: false,
+            initialize: false,
+            interrupt: false,
+            acknowledged: false
+        }
     }
 
     fn route(&self) -> Route {
@@ -50,16 +60,12 @@ impl Hardware for StdioConsole {
     fn receive(&mut self, message: HardwareMessage) {
         use hardware::HardwareMessage::*;
 
+        self.ram.receive(&message);
+
         match message {
             InitializeDevice(route) => {
                 self.initialize = true;
                 self.machine = Some(route.from);
-            },
-            MemGetRequest(_, addr) => {
-                self.request = Some(Request::Get(addr));
-            },
-            MemSetRequest(_, addr, val) => {
-                self.request = Some(Request::Set(addr, val));
             },
             IntMachineToDevice(_) => {
                 self.interrupt = true;
@@ -80,15 +86,13 @@ impl Hardware for StdioConsole {
 
             thread::spawn(move || stdin_worker(tx));
 
-            self.int_message = 0;
-            self.incoming = 0;
-            self.outgoing = 0;
+            self.ram.reinitialize();
+            self.ram.clear();
 
             self.initialize = false;
             self.on = true;
             self.interrupt = false;
             self.acknowledged = false;
-            self.request = None;
 
             dispatch.send(DeviceReady(self.route()));
 
@@ -98,52 +102,30 @@ impl Hardware for StdioConsole {
         if !self.on { return; }
 
         if self.interrupt {
-            match self.int_message {
-                0 => /* Ack */ {
+            match self.ram.words[INT_MESSAGE] {
+                cmd if cmd == ACK => {
                     debug!("ACK");
                     self.acknowledged = true;
                 },
-                1 => /* Send */ {
-                    debug!("SEND {:#x}", self.outgoing);
+                cmd if cmd == SEND => {
+                    debug!("SEND {:#x}", self.ram.words[OUTGOING]);
 
                     let terminal = self.terminal.as_mut().unwrap();
 
-                    terminal.write_all(&[self.outgoing as u8]).unwrap();
+                    terminal.write_all(&[self.ram.words[OUTGOING] as u8]).unwrap();
                     terminal.flush().unwrap();
                 },
-                _ => {
-                    debug!("Bad int_message = {:#010x}", self.int_message);
+                other => {
+                    debug!("Bad int_message = {:#010x}", other);
                 }
             }
             self.interrupt = false;
             return;
         }
 
-        if let Some(request) = self.request.take() {
-            debug!("request: {:?}", request);
-
-            match request {
-                Request::Get(addr) => {
-                    let result = match addr {
-                        0 => self.int_message,
-                        1 => self.incoming,
-                        2 => self.outgoing,
-                        _ => 0
-                    };
-
-                    dispatch.send(MemGetResponse(self.route(), addr, result, Cacheable::No));
-                },
-                Request::Set(addr, value) => {
-                    let result = match addr {
-                        0 => { self.int_message = value; value },
-                        2 => { self.outgoing = value; value },
-
-                        _ => 0
-                    };
-
-                    dispatch.send(MemSetResponse(self.route(), addr, result, Cacheable::No));
-                },
-            }
+        if self.ram.has_pending_request() {
+            let route = self.route();
+            self.ram.tick(route, &mut dispatch);
             return;
         }
 
@@ -152,10 +134,10 @@ impl Hardware for StdioConsole {
 
             match result {
                 Ok(byte) => {
-                    self.incoming = byte as u32;
+                    self.ram.words[INCOMING] = byte as u32;
                     self.acknowledged = false;
 
-                    debug!("incoming updated: {:#x}", self.incoming);
+                    debug!("incoming updated: {:#x}", byte);
 
                     dispatch.send(IntDeviceToMachine(self.route()));
                 },

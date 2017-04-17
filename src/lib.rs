@@ -19,6 +19,7 @@ pub mod assemble;
 pub mod hardware;
 pub mod event_pool;
 pub mod device;
+pub mod integrated_ram;
 pub mod ram;
 pub mod monitor;
 pub mod keyboard;
